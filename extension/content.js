@@ -357,7 +357,7 @@
       out.push({
         id, source: 'naver', name: name.slice(0, 150), price,
         reviewCount: st.reviewCount, purchaseCount: st.purchaseCount, rating: st.rating,
-        mall: mallEl ? cleanText(mallEl.textContent).slice(0, 40) : '',
+        mall: mallEl ? cleanText(mallEl.textContent).replace(/\s*새\s*창에서\s*열림/g, '').replace(/공식$/, '').trim().slice(0, 40) : '',
         delivery, ad: isAd,
         url: href ? absoluteUrl(href, pageUrl) : '',
         image: (img && (img.getAttribute('src') || img.getAttribute('data-src'))) || ''
@@ -473,7 +473,7 @@
         reviewCount: rv ? koNumber(rv[1]) : 0,
         purchaseCount: buy ? koNumber(buy[1]) : null,
         rating: star ? Number(star[1]) : null,
-        mall: ((mallEl && !NAVER_NOISE_RE.test(cleanText(mallEl.textContent))) ? cleanText(mallEl.textContent).slice(0, 40) : '') || naverMallName(card, name) ||
+        mall: ((mallEl && !NAVER_NOISE_RE.test(cleanText(mallEl.textContent))) ? cleanText(mallEl.textContent).replace(/\s*새\s*창에서\s*열림/g, '').slice(0, 40) : '') || naverMallName(card, name) ||
           (((href.match(/(?:smartstore|brand)\.naver\.com\/([^/?#]+)/) || [])[1] || '').replace(/^(main|m|i)$/, '')),
         delivery,
         ad,

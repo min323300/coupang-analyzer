@@ -59,7 +59,21 @@
       if (!data.items.length) return status('상품을 찾지 못했습니다. 페이지를 끝까지 스크롤한 뒤 다시 눌러 보세요.', 'err');
       const kw = (data.source === 'naver' ? '[네이버] ' : '') + (data.keyword || '(키워드 없음)');
       const s = state.sessions[kw] || { keyword: kw, items: {}, pages: [] };
-      data.items.forEach((it) => { s.items[it.id] = Object.assign(s.items[it.id] || {}, it); });
+      const norm = (x) => String(x.name || '').replace(/\[[^\]]*\]/g, '').replace(/\s+/g, '') + '|' + x.price;
+      const byName = {};
+      Object.values(s.items).forEach((x) => { byName[norm(x)] = x.id; });
+      data.items.forEach((it) => {
+        // 통합검색·쇼핑 탭에서 같은 상품이 다른 주소로 잡히면 하나로 합침
+        const sameId = s.items[it.id] ? it.id : byName[norm(it)];
+        if (sameId) {
+          const prev = s.items[sameId];
+          Object.keys(it).forEach((k) => { if (it[k] != null && it[k] !== '' && (prev[k] == null || prev[k] === '' || k === 'price' || k === 'reviewCount')) prev[k] = it[k]; });
+          if (it.rank && (!prev.rank || it.rank < prev.rank)) prev.rank = it.rank;
+        } else {
+          s.items[it.id] = it;
+          byName[norm(it)] = it.id;
+        }
+      });
       if (s.pages.indexOf(data.page) < 0) s.pages.push(data.page);
       s.updatedAt = new Date().toISOString();
       state.sessions[kw] = s;

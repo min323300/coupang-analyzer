@@ -98,7 +98,10 @@
   // ---------- 인기 키워드 ----------
   // 잘 팔리는(리뷰 많은) 상품들이 제목에 공통으로 쓰는 단어를 찾음
   var UNIT_RE = /^[\d.,]+(kg|g|ml|l|개|개입|입|팩|매|박스|세트|통|봉|구|미|마리|과|번|호|cm|mm|m|p|ea)?$/i;
-  var STOP = ['1박스', '1세트', '박스', '세트', '상품', '무료배송', '배송', '증정', '포함', '옵션', '택1', '선택', '모음', '구성', '용량', '대용량', '소용량', '단품', '개별', '포장', '및', '외', '등'];
+  var STOP = ['1박스', '1세트', '박스', '세트', '상품', '무료배송', '배송', '증정', '포함', '옵션', '택1', '선택', '모음', '구성', '용량', '대용량', '소용량', '단품', '개별', '포장', '및', '외', '등',
+    '김장대전', '무배', '오늘끝딜', '특가', '초특가', '타임특가', '한정특가', '슈퍼적립', '할인', '이벤트', '증정이벤트', '기획전', '1+1', '공식', '공식스토어', '새', '창에서', '열림'];
+  // 숫자+단위가 붙은 말(무침250g, 1kg+) · 할인 표시
+  var MIXED_UNIT_RE = /\d+(\.\d+)?\s*(kg|g|ml|l|개|팩|입|매|통|봉|인분|브릭스|brix)/i;
   // 근거가 있어야 쓸 수 있는 표현 (식품 표시·광고에서 주의)
   var CLAIM_RE = /(최상급|최고급|특급|1위|일등|최고|100%|haccp|해썹|유기농|무농약|무항생제|친환경|인증|명인|명품|전통|\d+년)/i;
 
@@ -125,6 +128,12 @@
 
   function extractKeywords(items, searchKeyword, limit) {
     limit = limit || 20;
+    // 판매처 이름(네이버 수집 시)은 업체명으로 표시
+    var malls = items.map(function (it) { return String(it.mall || '').replace(/\s+/g, '').toLowerCase(); }).filter(function (m) { return m.length >= 2; });
+    var isMall = function (w) {
+      var x = String(w).replace(/\s+/g, '').toLowerCase();
+      return malls.some(function (m) { return m === x || (x.length >= 3 && (m.indexOf(x) >= 0 || x.indexOf(m) >= 0)); });
+    };
     var kwParts = tokenize(searchKeyword).map(function (t) { return t.toLowerCase(); });
     var kwJoined = kwParts.join('');
     var stat = {};
@@ -133,7 +142,7 @@
       var lead = leadToken(it.name);
       tokenize(it.name).forEach(function (t) {
         var low = t.toLowerCase();
-        if (t.length < 2 || UNIT_RE.test(t) || STOP.indexOf(t) >= 0) return;
+        if (t.length < 2 || UNIT_RE.test(t) || STOP.indexOf(t) >= 0 || MIXED_UNIT_RE.test(t)) return;
         // 검색어 자체(예: 생굴무침, 생굴, 무침)는 제외
         if (kwParts.indexOf(low) >= 0 || low === kwJoined || (kwJoined && kwJoined.indexOf(low) >= 0)) return;
         if (seen[low]) return;
@@ -151,6 +160,7 @@
         // 점수: 많은 상품이 쓰고(count), 그 상품들이 많이 팔릴수록(리뷰) 높음
         s.score = Math.round(s.count * Math.log10((s.reviews || 0) + 10) * 10) / 10;
         s.caution = CLAIM_RE.test(s.word) ? '근거 필요'
+          : isMall(s.word) ? '업체명 확인'
           // 나온 상품마다 항상 맨 앞에 오는 단어는 업체·브랜드 이름일 가능성
           : (s.leadCount === s.count && !isPlace(s.word) ? '업체명 확인' : '');
         delete s.leadCount;
