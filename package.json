@@ -6,7 +6,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "node test/test.js"
+    "test": "node test/test.js && node test/popup-smoke.js"
   },
   "license": "ISC",
   "devDependencies": {

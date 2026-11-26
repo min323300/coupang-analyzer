@@ -135,7 +135,65 @@
         <td class="num">${i.rating == null ? '-' : i.rating}</td>
         <td>${i.delivery !== '일반' ? `<span class="tag">${esc(i.delivery)}</span>` : '일반'}</td>
         <td class="num">${A.formatWon(i.estRevenue)}</td>
+        <td><button class="copy-one" data-id="${esc(i.id)}" title="이 상품 정보 복사">📋</button></td>
       </tr>`).join('');
+  }
+
+  // ---------- 복사 ----------
+  async function copyText(text, label) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      // 클립보드 권한이 막힌 경우 예전 방식으로 복사
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    status(label + ' 복사했습니다. 원하는 곳에 Ctrl+V 로 붙여넣으세요.', 'ok');
+  }
+
+  function itemLine(i) {
+    const bits = [
+      i.name,
+      `가격 ${num(i.price)}원`,
+      `리뷰 ${num(i.reviewCount)}개`,
+      i.rating != null ? `별점 ${i.rating}` : '',
+      i.delivery,
+      i.ad ? '광고' : ''
+    ].filter(Boolean);
+    return bits.join(' / ') + '\n' + i.url;
+  }
+
+  function copySummary() {
+    const items = currentItems();
+    if (!items.length) return status('먼저 데이터를 수집하세요.', 'err');
+    const r = A.analyzeKeyword(items, state.settings.multiplier);
+    const top = r.items.filter((i) => !i.ad).sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0)).slice(0, 10);
+    const lines = [
+      `[쿠팡 "${state.current}" 분석] ${new Date().toLocaleDateString('ko-KR')}`,
+      `· 수집 상품 ${r.productCount}개 (광고 ${r.adCount})`,
+      `· 평균 ${A.formatWon(r.avgPrice)} / 중간 ${A.formatWon(r.medianPrice)} (범위 ${A.formatWon(r.minPrice)} ~ ${A.formatWon(r.maxPrice)})`,
+      `· 평균 별점 ${r.avgRating == null ? '-' : r.avgRating} / 로켓 비율 ${r.rocketShare}%`,
+      r.bestBand ? `· 가장 많이 팔리는 가격대: ${bandLabel(r.bestBand)} (리뷰 비중 ${r.bestBand.share}%)` : '',
+      '',
+      '[리뷰 많은 상품 TOP ' + top.length + ']'
+    ].filter((x) => x !== null);
+    top.forEach((i, n) => lines.push(`${n + 1}. ${itemLine(i)}`));
+    copyText(lines.join('\n'), '요약을');
+  }
+
+  function copyTable() {
+    const items = currentItems();
+    if (!items.length) return status('먼저 데이터를 수집하세요.', 'err');
+    const r = A.analyzeKeyword(items, state.settings.multiplier);
+    const head = ['순위', '광고', '상품명', '가격', '리뷰수', '별점', '배송', '상품ID', 'URL'];
+    const clean = (v) => String(v == null ? '' : v).replace(/[\t\n]/g, ' ');
+    const rows = r.items.slice().sort((a, b) => (a.rank || 9999) - (b.rank || 9999))
+      .map((i) => [i.rank || '', i.ad ? 'Y' : '', i.name, i.price, i.reviewCount, i.rating == null ? '' : i.rating, i.delivery, i.id, i.url].map(clean).join('\t'));
+    copyText([head.join('\t')].concat(rows).join('\n'), `표(${rows.length}개 상품)를`);
   }
 
   function bandLabel(b) {
@@ -286,6 +344,15 @@
   $('btnSend').addEventListener('click', sendToSheet);
   $('btnCsv').addEventListener('click', downloadCsv);
   $('btnClear').addEventListener('click', clearCurrent);
+  $('btnCopySummary').addEventListener('click', copySummary);
+  $('btnCopyTable').addEventListener('click', copyTable);
+  document.querySelector('#table tbody').addEventListener('click', (e) => {
+    const btn = e.target.closest('.copy-one');
+    if (!btn) return;
+    const s = state.sessions[state.current];
+    const it = s && s.items[btn.dataset.id];
+    if (it) copyText(itemLine(it), '상품 정보를');
+  });
   $('btnReviewCollect').addEventListener('click', collectReviews);
   $('btnAnalyze').addEventListener('click', analyzeReviews);
   $('btnReviewClear').addEventListener('click', async () => { state.reviews = null; $('aiResult').innerHTML = ''; await save(); renderReviews(); });
