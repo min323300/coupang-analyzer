@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쿠팡 상품 분석기",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "쿠팡·네이버쇼핑 검색 결과와 리뷰를 수집해 가격·리뷰·인기 키워드를 분석하고 구글시트에 저장합니다.",
   "action": {
     "default_popup": "popup.html",

@@ -202,6 +202,20 @@ assert.strictEqual(nm.items[0].mall, '강이네 식탁');
 assert.strictEqual(nm.items[0].price, 19900);
 console.log('✔ 네이버 판매처 이름 (main 주소)');
 
+// 3-2e) 네이버쇼핑 탭: 카드 하나에 사진·제목·판매처 링크 주소가 서로 다름 (이전엔 5개만 잡히던 문제)
+const card = (n, title, price, mall) => `<div class="product_item"><div class="thumb"><a href="https://search.shopping.naver.com/catalog/${n}0001"><img alt=""></a></div>
+ <div class="info"><a href="https://smartstore.naver.com/main/products/${n}0002?nl=1" title="${title}">${title}</a>
+ <div class="price"><del>${price + 3000}원</del><strong>${price.toLocaleString()}원</strong></div><div>배송비 3,000원</div>
+ <div><span>★4.8</span> 리뷰 ${n}00 · 구매 ${n}0</div></div>
+ <div class="mall"><a href="https://smartstore.naver.com/main">${mall}</a><a href="https://search.shopping.naver.com/bridge?x=${n}">쇼핑몰선택</a></div></div>`;
+const shopTab = `<div class="list">${card(1, '통영 생굴무침 300g 당일무침', 9900, '그대의밥상')}${card(2, '해남 굴무침 500g 국내산', 15900, '해남수산')}${card(3, '[특가] 통영 굴무침 1kg 대용량', 27800, '통영바다')}</div>`;
+const st = C.scrapeNaver(dom(shopTab, 'https://search.shopping.naver.com/search/all?query=%EC%83%9D%EA%B5%B4%EB%AC%B4%EC%B9%A8'));
+assert.strictEqual(st.items.length, 3, '카드 3개 모두');
+assert.deepStrictEqual(st.items.map((i) => i.price), [9900, 15900, 27800]);
+assert.deepStrictEqual(st.items.map((i) => i.mall), ['그대의밥상', '해남수산', '통영바다']);
+assert.deepStrictEqual(st.items.map((i) => i.reviewCount), [100, 200, 300]);
+console.log('✔ 네이버쇼핑 탭 (카드 안 링크가 여러 개)');
+
 // 3-2d) 화면 구조 복사
 const dbg = C.debugDump(dom(naverMain, 'https://search.naver.com/search.naver?query=x'));
 assert.ok(dbg.includes('카드 1') && dbg.includes('smartstore.naver.com/main') && !dbg.includes('nl-query'));

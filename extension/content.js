@@ -245,7 +245,7 @@
   }
 
   // ---------- 네이버쇼핑 검색 결과 ----------
-  const NAVER_PRODUCT_RE = /(smartstore\.naver\.com\/[^/?#]+\/products\/\d+|brand\.naver\.com\/[^/?#]+\/products\/\d+|shopping\.naver\.com\/(catalog|window-products|ns\/products|outlink)|cr\.shopping\.naver\.com|adcr\.naver\.com|\/catalog\/\d+|nv_mid=\d+|nvMid=\d+)/;
+  const NAVER_PRODUCT_RE = /(smartstore\.naver\.com\/[^/?#]+\/products\/\d+|brand\.naver\.com\/[^/?#]+\/products\/\d+|shopping\.naver\.com\/(catalog|window-products|ns\/products|outlink|bridge|product)|cr\.shopping\.naver\.com|adcr\.naver\.com|\/catalog\/\d+|nv_mid=\d+|nvMid=\d+|nvmid=\d+)/i;
 
   function naverKey(href) {
     const s = String(href || '');
@@ -261,17 +261,24 @@
     return Math.round(Number(m[1]) * (m[2] ? 10000 : 1));
   }
 
+  // 상품 제목 링크(글자가 긴 링크)를 기준으로 위로 올라가며, 다른 상품 제목이 섞이기 직전까지의 상자 중
+  // 가격이 들어 있는 가장 큰 것을 상품 카드로 봄 (한 카드에 사진·제목·판매처 링크 주소가 달라도 됨)
+  function linkTitle(x) {
+    return cleanText(x.getAttribute('title') || x.textContent);
+  }
+  function isTitleLink(x) {
+    const t = linkTitle(x);
+    return t.length >= 8 && !/^[\d,]+\s*원$/.test(t) && NAVER_PRODUCT_RE.test(x.getAttribute('href') || '');
+  }
   function naverCard(a) {
-    // 링크에서 위로 올라가며 "가격이 들어 있고, 다른 상품은 섞이지 않은" 가장 큰 상자를 상품 카드로 봄
-    const key = naverKey(a.getAttribute('href'));
+    const title = linkTitle(a);
     let el = a;
     let best = null;
-    for (let i = 0; i < 8 && el && el.parentElement; i++) {
+    for (let i = 0; i < 9 && el && el.parentElement; i++) {
       el = el.parentElement;
       if (el.tagName === 'BODY') break;
-      const keys = new Set(Array.from(el.querySelectorAll('a[href]'))
-        .map((x) => x.getAttribute('href')).filter((h) => NAVER_PRODUCT_RE.test(h)).map(naverKey));
-      if (keys.size > 1 || (keys.size === 1 && !keys.has(key))) break;
+      const others = Array.from(el.querySelectorAll('a[href]')).filter((x) => isTitleLink(x) && linkTitle(x) !== title);
+      if (others.length) break;
       if (/[\d,]{3,}\s*원/.test(el.textContent || '')) best = el;
     }
     return best;
@@ -295,7 +302,7 @@
   }
 
   // 판매처 이름: 카드 안 짧은 글자 중 가격·리뷰·배송 같은 안내 문구가 아닌 마지막 것
-  const NAVER_NOISE_RE = /(원|리뷰|구매|찜|배송|할인|광고|도착|쿠폰|포인트|적립|공식|N배송|무료|판매가|%|최대|멤버십|오늘|내일|모레|반품|교환|정보|더보기|공유|별점|평점|★|^\d|^\(|네이버|페이|플러스|슈퍼|특가|김장대전|오늘끝딜|이벤트)/;
+  const NAVER_NOISE_RE = /(원|리뷰|구매|찜|배송|할인|광고|도착|쿠폰|포인트|적립|공식|N배송|무료|판매가|%|최대|멤버십|오늘|내일|모레|반품|교환|정보|더보기|공유|별점|평점|★|^\d|^\(|네이버|페이|플러스|슈퍼|특가|김장대전|오늘끝딜|이벤트|쇼핑몰|판매처|선택|등록일|카테고리|신고|비교|최저|최고|정렬|브랜드|제조사)/;
   function naverMallName(card, name) {
     const leaves = Array.from(card.querySelectorAll('*')).filter((el) => el.children.length === 0);
     const cands = leaves.map((el) => cleanText(el.textContent))
@@ -316,13 +323,14 @@
 
     const seen = new Set();
     const items = [];
-    Array.from(doc.querySelectorAll('a[href]')).forEach((a) => {
+    const seenCards = new Set();
+    Array.from(doc.querySelectorAll('a[href]')).filter(isTitleLink).forEach((a) => {
       const href = a.getAttribute('href') || '';
-      if (!NAVER_PRODUCT_RE.test(href)) return;
       const key = naverKey(href);
       if (seen.has(key)) return;
       const card = naverCard(a);
-      if (!card) return;
+      if (!card || seenCards.has(card)) return;
+      seenCards.add(card);
       const price = naverPrice(card);
       if (!price) return;
       seen.add(key);
@@ -335,7 +343,7 @@
         .filter((s) => s.length >= 4 && !/^[\d,]+\s*원$/.test(s));
       linkTexts.sort((p, q) => q.length - p.length);
       const img = card.querySelector('img[alt]');
-      const name = (linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
+      const name = (linkTitle(a) || linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
 
       const raw = card.innerText || card.textContent || '';
       let rv = raw.match(/리뷰\s*\(?\s*([\d,.]+\s*만?)/);
@@ -365,7 +373,7 @@
         reviewCount: rv ? koNumber(rv[1]) : 0,
         purchaseCount: buy ? koNumber(buy[1]) : null,
         rating: star ? Number(star[1]) : null,
-        mall: (mallEl ? cleanText(mallEl.textContent).slice(0, 40) : '') || naverMallName(card, name) ||
+        mall: ((mallEl && !NAVER_NOISE_RE.test(cleanText(mallEl.textContent))) ? cleanText(mallEl.textContent).slice(0, 40) : '') || naverMallName(card, name) ||
           (((href.match(/(?:smartstore|brand)\.naver\.com\/([^/?#]+)/) || [])[1] || '').replace(/^(main|m|i)$/, '')),
         delivery,
         ad,
