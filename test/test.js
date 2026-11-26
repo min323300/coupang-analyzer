@@ -193,6 +193,20 @@ assert.strictEqual(ni.items[1].delivery, 'N배송');
 assert.strictEqual(ni.items[1].mall, 'kangifood', '판매처 칸이 없으면 스토어 주소에서');
 console.log('✔ 네이버 통합검색(플러스스토어) 수집');
 
+// 3-2c) 실제 링크가 smartstore.naver.com/main/... 인 경우 판매처는 카드 글자에서
+const naverMain = `<ul><li><div><a href="https://smartstore.naver.com/main/products/9666975559?nl-query=x">통영 생굴무침 500g 제철 굴무침 강이네식탁</a></div>
+  <div><span>할인 전 판매가</span><span>26,000원</span><span>23%할인</span><span>19,900원</span></div><div>배송비3,500원</div>
+  <div><span>4.87</span><span>(1,734)</span></div><div><span>강이네 식탁</span></div><div><span>네이버페이플러스</span></div></li></ul>`;
+const nm = C.scrapeNaver(dom(naverMain, 'https://search.naver.com/search.naver?query=x'));
+assert.strictEqual(nm.items[0].mall, '강이네 식탁');
+assert.strictEqual(nm.items[0].price, 19900);
+console.log('✔ 네이버 판매처 이름 (main 주소)');
+
+// 3-2d) 화면 구조 복사
+const dbg = C.debugDump(dom(naverMain, 'https://search.naver.com/search.naver?query=x'));
+assert.ok(dbg.includes('카드 1') && dbg.includes('smartstore.naver.com/main') && !dbg.includes('nl-query'));
+console.log('✔ 화면 구조 복사');
+
 // 3-3) 인기 키워드
 const kw = A.extractKeywords([
   { name: '[특가] 통영 산지직송 생굴무침 330g', reviewCount: 500 },
@@ -204,6 +218,13 @@ assert.strictEqual(kw[0].word, '통영');
 assert.ok(!kw.some((k) => /생굴무침|330g|2개|특가/.test(k.word) && k.word !== '특가') , '검색어·용량·수량 제외');
 assert.strictEqual(kw.find((k) => k.word === '더좋은').caution, '업체명 확인');
 assert.ok(!kw.find((k) => k.word === '최상급'), '한 상품에만 나온 단어 제외');
+const kw2 = A.extractKeywords([
+  { name: '통영 생굴무침 500g 제철 굴무침', reviewCount: 1734 },
+  { name: '통영 생굴무침 300g 굴무침 생굴 굴', reviewCount: 770 },
+  { name: '[김장대전] 통영 생굴무침 300g', reviewCount: 454 }
+], '생굴무침');
+assert.strictEqual(kw2[0].word, '통영');
+assert.strictEqual(kw2[0].caution, '', '지역명은 맨 앞에 와도 업체명으로 보지 않음');
 console.log('✔ 인기 키워드 추출');
 
 // 4) 분석

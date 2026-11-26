@@ -72,6 +72,24 @@
     }
   }
 
+  function isNaver() { return /^\[네이버\]/.test(state.current || ''); }
+
+  async function copyDebug() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      let res;
+      try { res = await chrome.tabs.sendMessage(tab.id, { action: 'debug' }); }
+      catch (e) {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+        res = await chrome.tabs.sendMessage(tab.id, { action: 'debug' });
+      }
+      if (!res || !res.ok) throw new Error((res && res.error) || '화면 구조를 읽지 못했습니다.');
+      copyText(res.data, '화면 구조를');
+    } catch (e) {
+      status('쿠팡 또는 네이버 검색 화면에서 눌러 주세요. (' + e.message + ')', 'err');
+    }
+  }
+
   function currentItems() {
     const s = state.sessions[state.current];
     return s ? Object.values(s.items) : [];
@@ -99,7 +117,7 @@
       card('진입 난이도', r.difficulty.level, 'level-' + r.difficulty.level.split(' ')[0]),
       card('가격 범위', `${A.formatWon(r.minPrice)} ~ ${A.formatWon(r.maxPrice)}`),
       card('평균 별점', r.avgRating == null ? '-' : r.avgRating),
-      card('로켓 배송 비율', r.rocketShare + '%'),
+      card(isNaver() ? '빠른배송 비율' : '로켓 배송 비율', r.rocketShare + '%'),
       card('상위3 리뷰 독점률', r.top3Share + '%')
     ].join('');
 
@@ -118,7 +136,7 @@
         <div class="pct">${b.share}%</div>
       </div>`).join('');
 
-    const kwList = A.extractKeywords(r.items, state.current, 20);
+    const kwList = A.extractKeywords(r.items, state.current.replace(/^\[네이버\]\s*/, ''), 20);
     $('keywords').innerHTML = kwList.length ? kwList.map((k) => `
       <span class="chip ${k.caution ? 'warn' : ''}" title="이 단어를 쓴 상품 ${k.count}개 · 그 상품들 리뷰 합 ${num(k.reviews)}">
         <b>${esc(k.word)}</b><small>${k.count}개·리뷰 ${num(k.reviews)}</small>${k.caution ? `<em>${esc(k.caution)}</em>` : ''}
@@ -181,10 +199,10 @@
     const r = A.analyzeKeyword(items, state.settings.multiplier);
     const top = r.items.filter((i) => !i.ad).sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0)).slice(0, 10);
     const lines = [
-      `[쿠팡 "${state.current}" 분석] ${new Date().toLocaleDateString('ko-KR')}`,
+      `[${isNaver() ? '네이버' : '쿠팡'} "${state.current.replace(/^\[네이버\]\s*/, '')}" 분석] ${new Date().toLocaleDateString('ko-KR')}`,
       `· 수집 상품 ${r.productCount}개 (광고 ${r.adCount})`,
       `· 평균 ${A.formatWon(r.avgPrice)} / 중간 ${A.formatWon(r.medianPrice)} (범위 ${A.formatWon(r.minPrice)} ~ ${A.formatWon(r.maxPrice)})`,
-      `· 평균 별점 ${r.avgRating == null ? '-' : r.avgRating} / 로켓 비율 ${r.rocketShare}%`,
+      `· 평균 별점 ${r.avgRating == null ? '-' : r.avgRating} / ${isNaver() ? '빠른배송(N배송·오늘출발 등)' : '로켓'} 비율 ${r.rocketShare}%`,
       r.bestBand ? `· 가장 많이 팔리는 가격대: ${bandLabel(r.bestBand)} (리뷰 비중 ${r.bestBand.share}%)` : '',
       '',
       '· 인기 키워드: ' + keywordLines().safe.slice(0, 10).join(', '),
@@ -197,7 +215,7 @@
 
   function keywordLines() {
     const r = A.analyzeKeyword(currentItems(), state.settings.multiplier);
-    const kws = A.extractKeywords(r.items, state.current, 20);
+    const kws = A.extractKeywords(r.items, state.current.replace(/^\[네이버\]\s*/, ''), 20);
     const safe = kws.filter((k) => !k.caution).map((k) => k.word);
     const warn = kws.filter((k) => k.caution).map((k) => `${k.word}(${k.caution})`);
     return { safe, warn, kws };
@@ -391,6 +409,7 @@
   $('btnReviewClear').addEventListener('click', async () => { state.reviews = null; $('aiResult').innerHTML = ''; await save(); renderReviews(); });
   $('btnSave').addEventListener('click', saveSettings);
   $('btnTest').addEventListener('click', testConnection);
+  $('btnDebug').addEventListener('click', copyDebug);
 
   load().then(async () => {
     render();

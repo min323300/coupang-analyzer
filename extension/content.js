@@ -294,6 +294,15 @@
     return m ? toNumber(m[1]) : null;
   }
 
+  // 판매처 이름: 카드 안 짧은 글자 중 가격·리뷰·배송 같은 안내 문구가 아닌 마지막 것
+  const NAVER_NOISE_RE = /(원|리뷰|구매|찜|배송|할인|광고|도착|쿠폰|포인트|적립|공식|N배송|무료|판매가|%|최대|멤버십|오늘|내일|모레|반품|교환|정보|더보기|공유|별점|평점|★|^\d|^\(|네이버|페이|플러스|슈퍼|특가|김장대전|오늘끝딜|이벤트)/;
+  function naverMallName(card, name) {
+    const leaves = Array.from(card.querySelectorAll('*')).filter((el) => el.children.length === 0);
+    const cands = leaves.map((el) => cleanText(el.textContent))
+      .filter((t) => t.length >= 2 && t.length <= 20 && !NAVER_NOISE_RE.test(t) && (!name || name.indexOf(t) < 0 || t.length >= name.length));
+    return cands.length ? cands[cands.length - 1] : '';
+  }
+
   function scrapeNaver(doc, pageUrl) {
     doc = doc || document;
     pageUrl = pageUrl || (doc.location && doc.location.href) || '';
@@ -356,8 +365,8 @@
         reviewCount: rv ? koNumber(rv[1]) : 0,
         purchaseCount: buy ? koNumber(buy[1]) : null,
         rating: star ? Number(star[1]) : null,
-        mall: mallEl ? cleanText(mallEl.textContent).slice(0, 40)
-          : ((href.match(/(?:smartstore|brand)\.naver\.com\/([^/?#]+)/) || [])[1] || ''),
+        mall: (mallEl ? cleanText(mallEl.textContent).slice(0, 40) : '') || naverMallName(card, name) ||
+          (((href.match(/(?:smartstore|brand)\.naver\.com\/([^/?#]+)/) || [])[1] || '').replace(/^(main|m|i)$/, '')),
         delivery,
         ad,
         url: absoluteUrl(href, pageUrl),
@@ -369,6 +378,42 @@
     return { type: 'search', source: 'naver', keyword, page, url: pageUrl, items };
   }
 
+  // 오류 신고용: 상품 카드 몇 개의 화면 구조(개인정보 없는 HTML 뼈대)를 복사
+  function debugDump(doc) {
+    doc = doc || document;
+    const priceRe = /[\d,]{3,}\s*원/;
+    const hostCount = {};
+    const cards = [];
+    const seen = new Set();
+    Array.from(doc.querySelectorAll('a[href]')).forEach((a) => {
+      let el = a;
+      for (let i = 0; i < 7 && el.parentElement; i++) {
+        el = el.parentElement;
+        const t = el.textContent || '';
+        if (priceRe.test(t) && t.length < 600) {
+          const h = (a.getAttribute('href') || '').replace(/^https?:\/\//, '').split(/[?#]/)[0].split('/').slice(0, 2).join('/');
+          hostCount[h] = (hostCount[h] || 0) + 1;
+          if (!seen.has(el) && cards.length < 6) { seen.add(el); cards.push(el); }
+          break;
+        }
+      }
+    });
+    const clean = (el) => {
+      const c = el.cloneNode(true);
+      c.querySelectorAll('script,style,svg,noscript').forEach((x) => x.remove());
+      c.querySelectorAll('*').forEach((x) => {
+        Array.from(x.attributes).forEach((at) => {
+          if (at.name === 'href') x.setAttribute('href', at.value.split('?')[0].slice(0, 120));
+          else if (!/^(class|aria-label|title|alt|data-[a-z-]*)$/.test(at.name)) x.removeAttribute(at.name);
+          else if (at.value.length > 120) x.setAttribute(at.name, at.value.slice(0, 120));
+        });
+      });
+      return c.outerHTML.replace(/\s{2,}/g, ' ');
+    };
+    const body = cards.map((c, i) => `--- 카드 ${i + 1} ---\n` + clean(c)).join('\n').slice(0, 14000);
+    return `[화면 구조] ${((doc.location && doc.location.href) || "").split('?')[0]}\n링크 종류: ${JSON.stringify(hostCount)}\n${body}`;
+  }
+
   function scrapeCurrent() {
     const url = location.href;
     if (/shopping\.naver\.com|search\.naver\.com/.test(url)) return scrapeNaver(document, url);
@@ -377,13 +422,17 @@
     return { type: 'unknown', url };
   }
 
-  const api = { scrapeSearch, scrapeProduct, scrapeNaver, koNumber, extractPrice, extractReviewCount, extractRating, toNumber, productIdFromUrl };
+  const api = { scrapeSearch, scrapeProduct, scrapeNaver, koNumber, naverMallName, debugDump, extractPrice, extractReviewCount, extractRating, toNumber, productIdFromUrl };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else if (!root.__coupangAnalyzerLoaded) {
     root.__coupangAnalyzerLoaded = true;
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (msg && msg.action === 'debug') {
+        try { sendResponse({ ok: true, data: debugDump(document) }); } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
+        return true;
+      }
       if (msg && msg.action === 'scrape') {
         try {
           sendResponse({ ok: true, data: scrapeCurrent() });
