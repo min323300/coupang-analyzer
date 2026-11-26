@@ -285,7 +285,7 @@
     if (!items.length) return status('먼저 데이터를 수집하세요.', 'err');
     try {
       status('구글시트로 보내는 중...', 'info');
-      const res = await postToSheet({ action: 'saveSearch', keyword: state.current, multiplier: Number(state.settings.multiplier) || 30, items });
+      const res = await postToSheet({ action: 'saveSearch', source: isNaver() ? '네이버' : '쿠팡', keyword: state.current, multiplier: Number(state.settings.multiplier) || 30, items });
       status(`저장 완료: ${res.saved}개 상품 기록, 판매추적 ${res.tracked}개 갱신`, 'ok');
     } catch (e) {
       status(e.message, 'err');

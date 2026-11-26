@@ -9,9 +9,9 @@
  */
 
 var SHEETS = {
-  LOG: { name: '수집기록', headers: ['수집일시', '키워드', '순위', '상품ID', '상품명', '가격', '리뷰수', '별점', '배송', '광고', 'URL'] },
-  SUMMARY: { name: '키워드요약', headers: ['수집일시', '키워드', '상품수', '평균가격', '중간가격', '최저가', '최고가', '총리뷰', '상위10평균리뷰', '상위3독점률(%)', '로켓비율(%)', '평균별점', '진입난이도'] },
-  TRACK: { name: '판매추적', headers: ['상품ID', '상품명', '키워드', '첫수집일시', '첫리뷰수', '최근수집일시', '최근리뷰수', '최근가격', '경과일', '리뷰증가', '하루리뷰증가', '추정하루판매', '추정월판매', '추정월매출', 'URL'] },
+  LOG: { name: '수집기록', headers: ['수집일시', '출처', '키워드', '순위', '상품ID', '상품명', '가격', '리뷰수', '별점', '구매수', '판매처', '배송', '광고', 'URL'] },
+  SUMMARY: { name: '키워드요약', headers: ['수집일시', '출처', '키워드', '상품수', '평균가격', '중간가격', '최저가', '최고가', '총리뷰', '상위10평균리뷰', '상위3독점률(%)', '로켓비율(%)', '평균별점', '진입난이도'] },
+  TRACK: { name: '판매추적', headers: ['상품ID', '상품명', '출처', '판매처', '키워드', '첫수집일시', '첫리뷰수', '최근수집일시', '최근리뷰수', '최근가격', '경과일', '리뷰증가', '하루리뷰증가', '추정하루판매', '추정월판매', '추정월매출', 'URL'] },
   REVIEW: { name: '리뷰분석', headers: ['분석일시', '상품ID', '상품명', '가격', '전체리뷰수', '분석리뷰수', '한줄요약', '잘팔리는이유', '장점', '불만', '차별화아이디어', '상세페이지문구', 'URL'] }
 };
 
@@ -67,7 +67,9 @@ function json_(obj) {
 // ---------- 검색 결과 저장 ----------
 function saveSearch_(body) {
   var now = new Date();
-  var keyword = String(body.keyword || '');
+  var rawKeyword = String(body.keyword || '');
+  var source = body.source || (/^\[네이버\]/.test(rawKeyword) ? '네이버' : '쿠팡');
+  var keyword = rawKeyword.replace(/^\[네이버\]\s*/, '');
   var multiplier = Number(body.multiplier) || 30;
   var items = (body.items || []).filter(function (i) { return i && i.id && i.price; });
   if (!items.length) throw new Error('저장할 상품이 없습니다.');
@@ -76,17 +78,18 @@ function saveSearch_(body) {
   // 1) 수집기록
   var log = getSheet_(SHEETS.LOG);
   var rows = items.map(function (i) {
-    return [now, keyword, i.rank || '', String(i.id), i.name || '', i.price || '', i.reviewCount || 0, i.rating == null ? '' : i.rating, i.delivery || '', i.ad ? 'Y' : '', i.url || ''];
+    return [now, source, keyword, i.rank || '', String(i.id), i.name || '', i.price || '', i.reviewCount || 0, i.rating == null ? '' : i.rating,
+      i.purchaseCount == null ? '' : i.purchaseCount, i.mall || '', i.delivery || '', i.ad ? 'Y' : '', shortUrl_(i.url)];
   });
   log.getRange(log.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
-  log.getRange(2, 4, log.getLastRow() - 1, 1).setNumberFormat('@');
+  log.getRange(2, 5, log.getLastRow() - 1, 1).setNumberFormat('@');
 
   // 2) 키워드요약
   var s = summarize_(items);
-  getSheet_(SHEETS.SUMMARY).appendRow([now, keyword, s.count, s.avg, s.median, s.min, s.max, s.totalReviews, s.top10Avg, s.top3Share, s.rocketShare, s.avgRating, s.level]);
+  getSheet_(SHEETS.SUMMARY).appendRow([now, source, keyword, s.count, s.avg, s.median, s.min, s.max, s.totalReviews, s.top10Avg, s.top3Share, s.rocketShare, s.avgRating, s.level]);
 
   // 3) 판매추적 (같은 상품을 다른 날 다시 수집하면 리뷰 증가량으로 판매 추정)
-  var tracked = updateTracking_(items, keyword, now, multiplier);
+  var tracked = updateTracking_(items, keyword, now, multiplier, source);
 
   return { ok: true, saved: items.length, tracked: tracked };
 }
@@ -118,7 +121,14 @@ function summarize_(items) {
   };
 }
 
-function updateTracking_(items, keyword, now, multiplier) {
+function shortUrl_(u) {
+  u = String(u || '');
+  // 스마트스토어·쿠팡 상품 주소는 ? 뒤 추적값을 지워 짧게, 광고 주소는 그대로(잘라서)
+  if (/smartstore\.naver\.com\/[^/]+\/products\/|coupang\.com\/vp\/products\//.test(u)) return u.split('?')[0];
+  return u.slice(0, 500);
+}
+
+function updateTracking_(items, keyword, now, multiplier, source) {
   var sh = getSheet_(SHEETS.TRACK);
   var width = SHEETS.TRACK.headers.length;
   var last = sh.getLastRow();
@@ -126,44 +136,47 @@ function updateTracking_(items, keyword, now, multiplier) {
   var index = {};
   data.forEach(function (r, i) { index[String(r[0])] = i; });
 
+  // 열: 0 상품ID 1 상품명 2 출처 3 판매처 4 키워드 5 첫수집일시 6 첫리뷰수 7 최근수집일시 8 최근리뷰수 9 최근가격
+  //     10 경과일 11 리뷰증가 12 하루리뷰증가 13 추정하루판매 14 추정월판매 15 추정월매출 16 URL
   items.forEach(function (it) {
     var id = String(it.id);
     var reviews = Number(it.reviewCount) || 0;
     if (index[id] == null) {
       index[id] = data.length;
-      data.push([id, it.name || '', keyword, now, reviews, now, reviews, it.price, 0, 0, '', '', '', '', it.url || '']);
+      data.push([id, it.name || '', source || '', it.mall || '', keyword, now, reviews, now, reviews, it.price, 0, 0, '', '', '', '', shortUrl_(it.url)]);
     } else {
       var r = data[index[id]];
       r[1] = it.name || r[1];
-      r[5] = now;
-      r[6] = reviews;
-      r[7] = it.price;
-      r[14] = it.url || r[14];
+      r[3] = it.mall || r[3];
+      r[7] = now;
+      r[8] = reviews;
+      r[9] = it.price;
+      r[16] = shortUrl_(it.url) || r[16];
     }
   });
 
   data.forEach(function (r) {
-    var first = new Date(r[3]);
-    var recent = new Date(r[5]);
+    var first = new Date(r[5]);
+    var recent = new Date(r[7]);
     var days = (recent - first) / 86400000;
-    r[8] = Math.round(days * 10) / 10;
-    r[9] = (Number(r[6]) || 0) - (Number(r[4]) || 0);
+    r[10] = Math.round(days * 10) / 10;
+    r[11] = (Number(r[8]) || 0) - (Number(r[6]) || 0);
     if (days >= 0.9) {
-      var perDay = Math.max(0, r[9]) / days;
-      r[10] = Math.round(perDay * 100) / 100;
-      r[11] = Math.round(perDay * multiplier);
-      r[12] = Math.round(perDay * multiplier * 30);
-      r[13] = Math.round(perDay * multiplier * 30 * (Number(r[7]) || 0));
+      var perDay = Math.max(0, r[11]) / days;
+      r[12] = Math.round(perDay * 100) / 100;
+      r[13] = Math.round(perDay * multiplier);
+      r[14] = Math.round(perDay * multiplier * 30);
+      r[15] = Math.round(perDay * multiplier * 30 * (Number(r[9]) || 0));
     } else {
-      r[10] = '1일 후 재수집 필요';
-      r[11] = r[12] = r[13] = '';
+      r[12] = '1일 후 재수집 필요';
+      r[13] = r[14] = r[15] = '';
     }
   });
 
   if (data.length) {
     sh.getRange(2, 1, data.length, width).setValues(data);
     sh.getRange(2, 1, data.length, 1).setNumberFormat('@');
-    sh.getRange(2, 14, data.length, 1).setNumberFormat('#,##0');
+    sh.getRange(2, 16, data.length, 1).setNumberFormat('#,##0');
   }
   return items.length;
 }

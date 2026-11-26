@@ -432,7 +432,7 @@
       const prodEl = a.querySelector('[class*="product" i], [class*="tit" i], [class*="name" i]');
       let name = prodEl ? cleanText(prodEl.textContent) : linkTitle(a);
       if (/[\d,]{3,}\s*원/.test(name)) name = name.split(/[\d,]{3,}\s*원/)[0].trim();
-      name = (name || linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
+      name = (name || linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').replace(/^광고\s*/, '').slice(0, 150);
       const dupKey = name.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, '') + '|' + price;
 
       const raw = card.innerText || card.textContent || '';
