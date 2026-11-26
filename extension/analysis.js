@@ -98,7 +98,9 @@
   function formatWon(n) {
     if (n == null || isNaN(n)) return '-';
     if (n >= 100000000) return (Math.round(n / 10000000) / 10) + '억원';
-    if (n >= 10000) return Math.round(n / 10000).toLocaleString('ko-KR') + '만원';
+    if (n >= 100000) return Math.round(n / 10000).toLocaleString('ko-KR') + '만원';
+    // 10만원 미만은 소수점 한 자리까지 (예: 1.4만원) — 가격대 구간이 "1만원~1만원"처럼 겹쳐 보이지 않게
+    if (n >= 10000) return (Math.round(n / 1000) / 10).toString().replace(/\.0$/, '') + '만원';
     return Math.round(n).toLocaleString('ko-KR') + '원';
   }
 

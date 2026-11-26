@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "쿠팡 상품 분석기",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "쿠팡 검색 결과와 상품 리뷰를 수집해 가격·리뷰·경쟁도를 분석하고 구글시트에 저장합니다.",
   "action": {
     "default_popup": "popup.html",
