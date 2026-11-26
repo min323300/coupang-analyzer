@@ -270,7 +270,8 @@
   // 상품 제목 링크(글자가 긴 링크)를 기준으로 위로 올라가며, 다른 상품 제목이 섞이기 직전까지의 상자 중
   // 가격이 들어 있는 가장 큰 것을 상품 카드로 봄 (한 카드에 사진·제목·판매처 링크 주소가 달라도 됨)
   function linkTitle(x) {
-    return cleanText(x.getAttribute('title') || x.textContent);
+    const t = cleanText(x.getAttribute('title') || x.textContent);
+    return /^새\s*창에서\s*열림$/.test(t) ? '' : t.replace(/\s*새\s*창에서\s*열림$/, '');
   }
   function isTitleLink(x) {
     const area = x.getAttribute('data-nlog-area') || '';
@@ -321,6 +322,72 @@
     return cands.length ? cands[cands.length - 1] : '';
   }
 
+  // 네이버쇼핑 탭(search.shopping.naver.com/ns/search) 전용: 2026-11 실제 화면 구조
+  // 카드 = basicProductCard, 상품명 = productCardTitle, 판매처 = mall_name, 가격 = priceTag_price
+  function naverShopCards(doc, pageUrl) {
+    const cards = Array.from(doc.querySelectorAll('[class*="basicProductCard_basic_product_card__"], [class*="product_item__"], [class*="adProduct_item__"]'))
+      .filter((c) => !c.parentElement || !c.parentElement.closest('[class*="basicProductCard_basic_product_card__"]'));
+    const out = [];
+    const seen = new Set();
+    cards.forEach((card) => {
+      const titleEl = card.querySelector('[class*="productCardTitle"], [class*="product_title"], [class*="adProduct_title"]');
+      const name = titleEl ? cleanText(titleEl.textContent) : '';
+      if (!name) return;
+      const link = card.querySelector('a[class*="basicProductCard_link"], a[class*="product_link"], a[href*="/products/"], a[href]');
+      const href = link ? link.getAttribute('href') || '' : '';
+      const params = link ? (link.getAttribute('data-nlog-params') || '') : '';
+      const priceEl = card.querySelector('[class*="priceTag_price__"], [class*="price_num"], [class*="price"] em');
+      const price = (priceEl && toNumber(priceEl.textContent)) || naverPrice(card);
+      if (!price) return;
+      const infoId = (card.querySelector('[id^="basic_product_card_information_"]') || card).id || '';
+      const id = (href.match(/products\/(\d+)/) || infoId.match(/(\d{5,})/) || params.match(/nv_mid[^\d]{0,12}(\d{5,})/) || [])[1] || name + '|' + price;
+      if (seen.has(id)) return;
+      seen.add(id);
+      const mallEl = card.querySelector('[class*="mall_name"], [class*="mallName"], [class*="mall_title"]');
+      const st = naverStats(card);
+      const isAd = /"is_ad"\s*:\s*true/.test(params) || /ader\.naver\.com|adcr\.naver\.com/.test(href) ||
+        Array.from(card.querySelectorAll('.blind, [class*="ad_badge"]')).some((e) => cleanText(e.textContent) === '광고');
+      const text = cleanText(card.textContent);
+      let delivery = '일반';
+      if (/N배송/.test(text)) delivery = 'N배송';
+      else if (/도착보장/.test(text)) delivery = '도착보장';
+      else if (/오늘출발/.test(text)) delivery = '오늘출발';
+      else if (/무료배송/.test(text)) delivery = '무료배송';
+      const img = card.querySelector('img');
+      out.push({
+        id, source: 'naver', name: name.slice(0, 150), price,
+        reviewCount: st.reviewCount, purchaseCount: st.purchaseCount, rating: st.rating,
+        mall: mallEl ? cleanText(mallEl.textContent).slice(0, 40) : '',
+        delivery, ad: isAd,
+        url: href ? absoluteUrl(href, pageUrl) : '',
+        image: (img && (img.getAttribute('src') || img.getAttribute('data-src'))) || ''
+      });
+    });
+    return out;
+  }
+
+  // 별점·리뷰·구매 수 (여러 표시 형식)
+  function naverStats(card) {
+    const raw = card.innerText || card.textContent || '';
+    let rv = raw.match(/리뷰\s*\(?\s*([\d,.]+\s*[만천]?)/);
+    const buy = raw.match(/구매\s*([\d,.]+\s*[만천]?)/);
+    let star = raw.match(/(?:별점|평점|★)\s*([0-5](?:\.\d+)?)/);
+    const lv = Array.from(card.querySelectorAll('*')).filter((x) => x.children.length === 0)
+      .map((x) => cleanText(x.textContent)).filter(Boolean);
+    for (let k = 0; k < lv.length - 1; k++) {
+      if (/^(별점\s*)?[0-5]\.\d{1,2}$/.test(lv[k]) && /^(리뷰\s*)?\(?\s*[\d,]+(\.\d+)?\s*[만천]?\+?\s*\)?$/.test(lv[k + 1])) {
+        star = [null, lv[k].replace(/[^\d.]/g, '')];
+        rv = [null, lv[k + 1].replace(/[()리뷰\s]/g, '')];
+        break;
+      }
+    }
+    return {
+      rating: star ? Number(star[1]) : null,
+      reviewCount: rv ? koNumber(rv[1]) : 0,
+      purchaseCount: buy ? koNumber(buy[1]) : null
+    };
+  }
+
   function scrapeNaver(doc, pageUrl) {
     doc = doc || document;
     pageUrl = pageUrl || (doc.location && doc.location.href) || '';
@@ -333,6 +400,12 @@
     } catch (e) { /* ignore */ }
 
     const seen = new Set();
+    const shop = naverShopCards(doc, pageUrl);
+    if (shop.length >= 3) {
+      let p2 = 0;
+      shop.forEach((it) => { if (it.ad) it.rank = null; else { p2 += 1; it.rank = (page - 1) * 40 + p2; } });
+      return { type: 'search', source: 'naver', keyword, page, url: pageUrl, items: shop };
+    }
     const items = [];
     const seenCards = new Set();
     const seenNames = new Map();
@@ -471,7 +544,7 @@
     return { type: 'unknown', url };
   }
 
-  const api = { scrapeSearch, scrapeProduct, scrapeNaver, koNumber, naverMallName, debugDump, extractPrice, extractReviewCount, extractRating, toNumber, productIdFromUrl };
+  const api = { scrapeSearch, scrapeProduct, scrapeNaver, naverShopCards, koNumber, naverMallName, debugDump, extractPrice, extractReviewCount, extractRating, toNumber, productIdFromUrl };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

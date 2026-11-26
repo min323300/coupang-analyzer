@@ -232,6 +232,23 @@ assert.strictEqual(chef.delivery, '오늘출발');
 assert.ok(rn.items.some((i) => i.mall === '강이네 식탁'), '두 번째 카드');
 console.log('✔ 실제 네이버 통합검색 구조 (' + rn.items.length + '개: ' + rn.items.map((i) => i.mall + ' ' + i.price).join(', ') + ')');
 
+// 3-2g) 실제 네이버쇼핑 탭 구조 (사용자가 복사해 준 것, 2026-11-26)
+const shopReal = fs.readFileSync(__dirname + '/naver-shop-real.html', 'utf8');
+const sr = C.scrapeNaver(dom('<body>' + shopReal + '</body>', 'https://search.shopping.naver.com/ns/search?query=%EC%83%9D%EA%B5%B4%EB%AC%B4%EC%B9%A8'));
+assert.strictEqual(sr.keyword, '생굴무침');
+assert.strictEqual(sr.items.length, 3);
+assert.deepStrictEqual(sr.items.map((i) => i.name), ['셰프애찬 굴함량60% 통영 생굴 무침250g', '산청할매 30년전통 굴 생굴무침 1kg + 알배추', '통영 생굴로 무친 생굴무침 300g, 500g']);
+assert.deepStrictEqual(sr.items.map((i) => i.mall), ['셰프애찬', '통영밥상', '더신선 공식스토어']);
+assert.deepStrictEqual(sr.items.map((i) => i.price), [9800, 26900, 13900]);
+assert.deepStrictEqual(sr.items.map((i) => i.ad), [true, false, false], '슈퍼적립 표시는 광고 아님(is_ad:false)');
+assert.deepStrictEqual(sr.items.map((i) => i.rating), [4.67, 4.77, 4.8]);
+assert.deepStrictEqual(sr.items.map((i) => i.reviewCount), [9822, 720, 57]);
+assert.deepStrictEqual(sr.items.map((i) => i.purchaseCount), [3000, 575, null]);
+assert.deepStrictEqual(sr.items.map((i) => i.id), ['9365853158', '12312353207', '13823467465']);
+assert.deepStrictEqual(sr.items.map((i) => i.rank), [null, 1, 2]);
+assert.strictEqual(sr.items[1].delivery, 'N배송');
+console.log('✔ 실제 네이버쇼핑 탭 구조');
+
 // 3-2d) 화면 구조 복사
 const dbg = C.debugDump(dom(naverMain, 'https://search.naver.com/search.naver?query=x'));
 assert.ok(dbg.includes('카드 1') && dbg.includes('smartstore.naver.com/main') && !dbg.includes('nl-query'));
