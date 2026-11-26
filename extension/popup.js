@@ -44,7 +44,7 @@
         await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
         res = await ask();
       } catch (e2) {
-        throw new Error('쿠팡 페이지에서만 사용할 수 있습니다. 쿠팡 검색/상품 페이지를 열고 다시 시도하세요.');
+        throw new Error('쿠팡 또는 네이버쇼핑 검색 페이지에서만 사용할 수 있습니다. 해당 페이지를 열고 다시 시도하세요.');
       }
     }
     if (!res || !res.ok) throw new Error((res && res.error) || '페이지를 읽지 못했습니다.');
@@ -55,9 +55,9 @@
   async function collect() {
     try {
       const data = await scrapeActiveTab();
-      if (data.type !== 'search') return status('쿠팡 "검색 결과" 페이지에서 눌러 주세요.', 'err');
+      if (data.type !== 'search') return status('쿠팡 또는 네이버쇼핑 "검색 결과" 페이지에서 눌러 주세요.', 'err');
       if (!data.items.length) return status('상품을 찾지 못했습니다. 페이지를 끝까지 스크롤한 뒤 다시 눌러 보세요.', 'err');
-      const kw = data.keyword || '(키워드 없음)';
+      const kw = (data.source === 'naver' ? '[네이버] ' : '') + (data.keyword || '(키워드 없음)');
       const s = state.sessions[kw] || { keyword: kw, items: {}, pages: [] };
       data.items.forEach((it) => { s.items[it.id] = Object.assign(s.items[it.id] || {}, it); });
       if (s.pages.indexOf(data.page) < 0) s.pages.push(data.page);
@@ -118,6 +118,12 @@
         <div class="pct">${b.share}%</div>
       </div>`).join('');
 
+    const kwList = A.extractKeywords(r.items, state.current, 20);
+    $('keywords').innerHTML = kwList.length ? kwList.map((k) => `
+      <span class="chip ${k.caution ? 'warn' : ''}" title="이 단어를 쓴 상품 ${k.count}개 · 그 상품들 리뷰 합 ${num(k.reviews)}">
+        <b>${esc(k.word)}</b><small>${k.count}개·리뷰 ${num(k.reviews)}</small>${k.caution ? `<em>${esc(k.caution)}</em>` : ''}
+      </span>`).join('') : '<span class="note">상품을 더 수집하면 키워드가 나옵니다.</span>';
+
     const key = state.sortKey;
     const dir = state.sortDir;
     const rows = r.items.slice().sort((a, b) => {
@@ -129,7 +135,7 @@
     document.querySelector('#table tbody').innerHTML = rows.map((i) => `
       <tr>
         <td class="num">${i.rank || (i.ad ? '광고' : '-')}</td>
-        <td class="name">${i.ad ? '<span class="tag ad">광고</span>' : ''}<a href="${esc(i.url)}" target="_blank">${esc(i.name)}</a></td>
+        <td class="name">${i.ad ? '<span class="tag ad">광고</span>' : ''}<a href="${esc(i.url)}" target="_blank">${esc(i.name)}</a>${i.mall || i.purchaseCount ? `<br><small class="sub">${i.mall ? esc(i.mall) : ''}${i.purchaseCount ? ` · 구매 ${num(i.purchaseCount)}` : ''}</small>` : ''}</td>
         <td class="num">${num(i.price)}</td>
         <td class="num">${num(i.reviewCount)}</td>
         <td class="num">${i.rating == null ? '-' : i.rating}</td>
@@ -161,6 +167,8 @@
       `가격 ${num(i.price)}원`,
       `리뷰 ${num(i.reviewCount)}개`,
       i.rating != null ? `별점 ${i.rating}` : '',
+      i.purchaseCount ? `구매 ${num(i.purchaseCount)}건` : '',
+      i.mall ? `판매처 ${i.mall}` : '',
       i.delivery,
       i.ad ? '광고' : ''
     ].filter(Boolean);
@@ -179,20 +187,44 @@
       `· 평균 별점 ${r.avgRating == null ? '-' : r.avgRating} / 로켓 비율 ${r.rocketShare}%`,
       r.bestBand ? `· 가장 많이 팔리는 가격대: ${bandLabel(r.bestBand)} (리뷰 비중 ${r.bestBand.share}%)` : '',
       '',
+      '· 인기 키워드: ' + keywordLines().safe.slice(0, 10).join(', '),
+      '',
       '[리뷰 많은 상품 TOP ' + top.length + ']'
     ].filter((x) => x !== null);
     top.forEach((i, n) => lines.push(`${n + 1}. ${itemLine(i)}`));
     copyText(lines.join('\n'), '요약을');
   }
 
+  function keywordLines() {
+    const r = A.analyzeKeyword(currentItems(), state.settings.multiplier);
+    const kws = A.extractKeywords(r.items, state.current, 20);
+    const safe = kws.filter((k) => !k.caution).map((k) => k.word);
+    const warn = kws.filter((k) => k.caution).map((k) => `${k.word}(${k.caution})`);
+    return { safe, warn, kws };
+  }
+
+  function copyKeywords() {
+    if (!currentItems().length) return status('먼저 데이터를 수집하세요.', 'err');
+    const { safe, warn } = keywordLines();
+    if (!safe.length && !warn.length) return status('키워드가 아직 없습니다. 상품을 더 수집해 보세요.', 'err');
+    const lines = [
+      `[${state.current}] 인기 키워드`,
+      '추천: ' + safe.join(', '),
+      warn.length ? '주의: ' + warn.join(', ') : '',
+      '',
+      '검색용 조합 예: ' + [safe[0], state.current].concat(safe.slice(1, 4)).filter(Boolean).join(' ')
+    ].filter((x) => x !== '');
+    copyText(lines.join('\n'), '인기 키워드를');
+  }
+
   function copyTable() {
     const items = currentItems();
     if (!items.length) return status('먼저 데이터를 수집하세요.', 'err');
     const r = A.analyzeKeyword(items, state.settings.multiplier);
-    const head = ['순위', '광고', '상품명', '가격', '리뷰수', '별점', '배송', '상품ID', 'URL'];
+    const head = ['순위', '광고', '상품명', '가격', '리뷰수', '별점', '구매수', '판매처', '배송', '상품ID', 'URL'];
     const clean = (v) => String(v == null ? '' : v).replace(/[\t\n]/g, ' ');
     const rows = r.items.slice().sort((a, b) => (a.rank || 9999) - (b.rank || 9999))
-      .map((i) => [i.rank || '', i.ad ? 'Y' : '', i.name, i.price, i.reviewCount, i.rating == null ? '' : i.rating, i.delivery, i.id, i.url].map(clean).join('\t'));
+      .map((i) => [i.rank || '', i.ad ? 'Y' : '', i.name, i.price, i.reviewCount, i.rating == null ? '' : i.rating, i.purchaseCount == null ? '' : i.purchaseCount, i.mall || '', i.delivery, i.id, i.url].map(clean).join('\t'));
     copyText([head.join('\t')].concat(rows).join('\n'), `표(${rows.length}개 상품)를`);
   }
 
@@ -346,6 +378,7 @@
   $('btnClear').addEventListener('click', clearCurrent);
   $('btnCopySummary').addEventListener('click', copySummary);
   $('btnCopyTable').addEventListener('click', copyTable);
+  $('btnCopyKeywords').addEventListener('click', copyKeywords);
   document.querySelector('#table tbody').addEventListener('click', (e) => {
     const btn = e.target.closest('.copy-one');
     if (!btn) return;

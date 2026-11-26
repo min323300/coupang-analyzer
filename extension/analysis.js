@@ -95,6 +95,64 @@
     };
   }
 
+  // ---------- 인기 키워드 ----------
+  // 잘 팔리는(리뷰 많은) 상품들이 제목에 공통으로 쓰는 단어를 찾음
+  var UNIT_RE = /^[\d.,]+(kg|g|ml|l|개|개입|입|팩|매|박스|세트|통|봉|구|미|마리|과|번|호|cm|mm|m|p|ea)?$/i;
+  var STOP = ['1박스', '1세트', '박스', '세트', '상품', '무료배송', '배송', '증정', '포함', '옵션', '택1', '선택', '모음', '구성', '용량', '대용량', '소용량', '단품', '개별', '포장', '및', '외', '등'];
+  // 근거가 있어야 쓸 수 있는 표현 (식품 표시·광고에서 주의)
+  var CLAIM_RE = /(최상급|최고급|특급|1위|일등|최고|100%|haccp|해썹|유기농|무농약|무항생제|친환경|인증|명인|명품|전통|\d+년)/i;
+
+  function tokenize(name) {
+    return String(name || '')
+      .replace(/[\[\]\(\)\{\}<>【】「」『』/|,+~!?:;"'·•★☆♥❤︎_=]/g, ' ')
+      .split(/\s+/)
+      .map(function (t) { return t.replace(/^[-.]+|[-.]+$/g, ''); })
+      .filter(Boolean);
+  }
+
+  // 상품명 맨 앞의 [태그]를 뺀 첫 단어 (업체·브랜드 이름이 주로 오는 자리)
+  function leadToken(name) {
+    var t = tokenize(String(name || '').replace(/^\s*(\[[^\]]*\]\s*)+/, ''));
+    return t.length ? t[0].toLowerCase() : '';
+  }
+
+  function extractKeywords(items, searchKeyword, limit) {
+    limit = limit || 20;
+    var kwParts = tokenize(searchKeyword).map(function (t) { return t.toLowerCase(); });
+    var kwJoined = kwParts.join('');
+    var stat = {};
+    items.forEach(function (it) {
+      var seen = {};
+      var lead = leadToken(it.name);
+      tokenize(it.name).forEach(function (t) {
+        var low = t.toLowerCase();
+        if (t.length < 2 || UNIT_RE.test(t) || STOP.indexOf(t) >= 0) return;
+        // 검색어 자체(예: 생굴무침, 생굴, 무침)는 제외
+        if (kwParts.indexOf(low) >= 0 || low === kwJoined || (kwJoined && kwJoined.indexOf(low) >= 0)) return;
+        if (seen[low]) return;
+        seen[low] = true;
+        var s = stat[low] || (stat[low] = { word: t, count: 0, reviews: 0, leadCount: 0 });
+        s.count += 1;
+        s.reviews += it.reviewCount || 0;
+        if (lead === low) s.leadCount += 1;
+      });
+    });
+    return Object.keys(stat).map(function (k) { return stat[k]; })
+      // 한 상품에만 나온 단어는 업체 이름일 가능성이 커서 제외
+      .filter(function (s) { return s.count >= 2; })
+      .map(function (s) {
+        // 점수: 많은 상품이 쓰고(count), 그 상품들이 많이 팔릴수록(리뷰) 높음
+        s.score = Math.round(s.count * Math.log10((s.reviews || 0) + 10) * 10) / 10;
+        s.caution = CLAIM_RE.test(s.word) ? '근거 필요'
+          // 나온 상품마다 항상 맨 앞에 오는 단어는 업체·브랜드 이름일 가능성
+          : (s.leadCount === s.count ? '업체명 확인' : '');
+        delete s.leadCount;
+        return s;
+      })
+      .sort(function (a, b) { return b.score - a.score || b.reviews - a.reviews; })
+      .slice(0, limit);
+  }
+
   function formatWon(n) {
     if (n == null || isNaN(n)) return '-';
     if (n >= 100000000) return (Math.round(n / 10000000) / 10) + '억원';
@@ -114,7 +172,7 @@
     return '﻿' + [head.join(',')].concat(rows).join('\n');
   }
 
-  const api = { analyzeKeyword, priceBands, median, estimateSales, difficulty, formatWon, toCsv };
+  const api = { analyzeKeyword, priceBands, median, estimateSales, difficulty, formatWon, toCsv, extractKeywords, tokenize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CoupangAnalysis = api;
 })(typeof window !== 'undefined' ? window : globalThis);

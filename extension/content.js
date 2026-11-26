@@ -244,14 +244,128 @@
     return { type: 'product', id, name, price, reviewCount, url: pageUrl.split('?')[0], reviews };
   }
 
+  // ---------- 네이버쇼핑 검색 결과 ----------
+  const NAVER_PRODUCT_RE = /(smartstore\.naver\.com\/[^/?#]+\/products\/\d+|brand\.naver\.com\/[^/?#]+\/products\/\d+|shopping\.naver\.com\/(catalog|window-products|ns\/products|outlink)|cr\.shopping\.naver\.com|adcr\.naver\.com|\/catalog\/\d+|nv_mid=\d+|nvMid=\d+)/;
+
+  function naverKey(href) {
+    const s = String(href || '');
+    const m = s.match(/(?:nv_mid|nvMid|catalog\/|products\/)(\d{5,})/);
+    return m ? m[1] : s.split('?')[0];
+  }
+
+  function koNumber(str) {
+    // "1.2만" → 12000, "3,456" → 3456
+    if (!str) return null;
+    const m = String(str).replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*(만)?/);
+    if (!m) return null;
+    return Math.round(Number(m[1]) * (m[2] ? 10000 : 1));
+  }
+
+  function naverCard(a) {
+    // 링크에서 위로 올라가며 "가격이 들어 있고, 다른 상품은 섞이지 않은" 가장 큰 상자를 상품 카드로 봄
+    const key = naverKey(a.getAttribute('href'));
+    let el = a;
+    let best = null;
+    for (let i = 0; i < 8 && el && el.parentElement; i++) {
+      el = el.parentElement;
+      if (el.tagName === 'BODY') break;
+      const keys = new Set(Array.from(el.querySelectorAll('a[href]'))
+        .map((x) => x.getAttribute('href')).filter((h) => NAVER_PRODUCT_RE.test(h)).map(naverKey));
+      if (keys.size > 1 || (keys.size === 1 && !keys.has(key))) break;
+      if (/[\d,]{3,}\s*원/.test(el.textContent || '')) best = el;
+    }
+    return best;
+  }
+
+  function naverPrice(card) {
+    const t = (card.textContent || '')
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/배송비\s*[\d,]+\s*원/g, ' ')
+      .replace(/[\d,]+\s*원\s*(적립|할인|쿠폰|이상)/g, ' ')
+      .replace(/최대\s*[\d,]+\s*원/g, ' ');
+    // 취소선(정가) 제거 후 첫 번째 금액
+    const clone = card.cloneNode(true);
+    clone.querySelectorAll('del, s, strike').forEach((e) => e.remove());
+    const t2 = (clone.textContent || '').replace(/\([^)]*\)/g, ' ').replace(/배송비\s*[\d,]+\s*원/g, ' ')
+      .replace(/[\d,]+\s*원\s*(적립|할인|쿠폰|이상)/g, ' ').replace(/최대\s*[\d,]+\s*원/g, ' ');
+    const m = t2.match(/([\d]{1,3}(?:,\d{3})+|\d{3,})\s*원/) || t.match(/([\d]{1,3}(?:,\d{3})+|\d{3,})\s*원/);
+    return m ? toNumber(m[1]) : null;
+  }
+
+  function scrapeNaver(doc, pageUrl) {
+    doc = doc || document;
+    pageUrl = pageUrl || (doc.location && doc.location.href) || '';
+    let keyword = '';
+    let page = 1;
+    try {
+      const u = new URL(pageUrl);
+      keyword = u.searchParams.get('query') || u.searchParams.get('q') || '';
+      page = Number(u.searchParams.get('pagingIndex') || u.searchParams.get('page') || 1);
+    } catch (e) { /* ignore */ }
+
+    const seen = new Set();
+    const items = [];
+    Array.from(doc.querySelectorAll('a[href]')).forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      if (!NAVER_PRODUCT_RE.test(href)) return;
+      const key = naverKey(href);
+      if (seen.has(key)) return;
+      const card = naverCard(a);
+      if (!card) return;
+      const price = naverPrice(card);
+      if (!price) return;
+      seen.add(key);
+      const text = cleanText(card.textContent);
+
+      // 상품명: 카드 안 링크 중 글자가 가장 긴 것 → 이미지 설명
+      const linkTexts = Array.from(card.querySelectorAll('a[href]'))
+        .filter((x) => NAVER_PRODUCT_RE.test(x.getAttribute('href') || ''))
+        .map((x) => cleanText(x.getAttribute('title') || x.textContent))
+        .filter((s) => s.length >= 4 && !/^[\d,]+\s*원$/.test(s));
+      linkTexts.sort((p, q) => q.length - p.length);
+      const img = card.querySelector('img[alt]');
+      const name = (linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
+
+      const rv = text.match(/리뷰\s*\(?\s*([\d,.]+\s*만?)/);
+      const buy = text.match(/구매\s*([\d,.]+\s*만?)/);
+      const star = text.match(/(?:별점|평점|★)\s*([0-5](?:\.\d+)?)/);
+      const mallEl = card.querySelector('[class*="mall" i] a, [class*="mall_title" i], [class*="mallName" i], [class*="store" i] a');
+      const ad = /adcr\.naver\.com|cr\.shopping\.naver\.com\/adcr|ad\.search\.naver/.test(href) ||
+        Array.from(card.querySelectorAll('span, em, i, button')).some((e) => e.children.length === 0 && cleanText(e.textContent) === '광고');
+      let delivery = '일반';
+      if (/도착보장/.test(text)) delivery = '도착보장';
+      else if (/오늘출발/.test(text)) delivery = '오늘출발';
+      else if (/무료배송/.test(text)) delivery = '무료배송';
+
+      items.push({
+        id: key,
+        source: 'naver',
+        name,
+        price,
+        reviewCount: rv ? koNumber(rv[1]) : 0,
+        purchaseCount: buy ? koNumber(buy[1]) : null,
+        rating: star ? Number(star[1]) : null,
+        mall: mallEl ? cleanText(mallEl.textContent).slice(0, 40) : '',
+        delivery,
+        ad,
+        url: absoluteUrl(href, pageUrl),
+        image: (img && (img.getAttribute('src') || img.getAttribute('data-src'))) || ''
+      });
+    });
+    let pos = 0;
+    items.forEach((it) => { if (it.ad) it.rank = null; else { pos += 1; it.rank = (page - 1) * 40 + pos; } });
+    return { type: 'search', source: 'naver', keyword, page, url: pageUrl, items };
+  }
+
   function scrapeCurrent() {
     const url = location.href;
+    if (/shopping\.naver\.com/.test(url)) return scrapeNaver(document, url);
     if (/\/np\/search/.test(url)) return scrapeSearch(document, url);
     if (/\/vp\/products\//.test(url)) return scrapeProduct(document, url);
     return { type: 'unknown', url };
   }
 
-  const api = { scrapeSearch, scrapeProduct, extractPrice, extractReviewCount, extractRating, toNumber, productIdFromUrl };
+  const api = { scrapeSearch, scrapeProduct, scrapeNaver, koNumber, extractPrice, extractReviewCount, extractRating, toNumber, productIdFromUrl };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

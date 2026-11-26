@@ -147,6 +147,43 @@ assert.strictEqual(p.reviewCount, 1234);
 assert.strictEqual(p.reviews.length, 2, '중복 리뷰 제거');
 console.log('✔ 상품 상세·리뷰 수집');
 
+// 3-2) 네이버쇼핑 (일반적인 카드 구조 샘플)
+const naverHtml = `
+<div id="list">
+ <div class="product_item__a"><div class="product_img"><a href="https://smartstore.naver.com/tongyeong/products/1111111?nl-query=x"><img alt="통영 생굴무침 산지직송 300g"></a></div>
+  <div class="product_info"><a href="https://smartstore.naver.com/tongyeong/products/1111111" title="통영 생굴무침 산지직송 300g 당일무침">통영 생굴무침 산지직송 300g 당일무침</a>
+   <div class="price"><del>19,000원</del><strong>12,900원</strong></div><div>배송비 3,000원</div>
+   <div>★4.8 리뷰 1,234 · 구매 2.3만 · 찜 99</div><div class="mall_title"><a>통영바다상회</a></div><div>오늘출발</div></div></div>
+ <div class="product_item__a"><div><a href="https://adcr.naver.com/adcr?x=1&nv_mid=2222222">해남 굴무침 500g</a></div>
+  <div>15,900원 (100g당 3,180원)</div><div>리뷰 87</div><span>광고</span><div class="mall_title"><a>해남수산</a></div></div>
+ <div class="product_item__a"><div><a href="https://search.shopping.naver.com/catalog/3333333">굴무침 가격비교</a></div><div>최저 9,900원</div><div>리뷰 (5.6만)</div></div>
+</div>`;
+const nv = C.scrapeNaver(dom(naverHtml, 'https://search.shopping.naver.com/ns/search?query=%EC%83%9D%EA%B5%B4%EB%AC%B4%EC%B9%A8'));
+assert.strictEqual(nv.keyword, '생굴무침');
+assert.strictEqual(nv.items.length, 3);
+assert.deepStrictEqual(nv.items.map((i) => i.price), [12900, 15900, 9900], '정가·배송비·100g당 가격 제외');
+assert.deepStrictEqual(nv.items.map((i) => i.reviewCount), [1234, 87, 56000]);
+assert.strictEqual(nv.items[0].purchaseCount, 23000);
+assert.strictEqual(nv.items[0].rating, 4.8);
+assert.strictEqual(nv.items[0].mall, '통영바다상회');
+assert.strictEqual(nv.items[0].delivery, '오늘출발');
+assert.strictEqual(nv.items[0].name, '통영 생굴무침 산지직송 300g 당일무침');
+assert.deepStrictEqual(nv.items.map((i) => i.ad), [false, true, false]);
+console.log('✔ 네이버쇼핑 수집 (샘플 구조)');
+
+// 3-3) 인기 키워드
+const kw = A.extractKeywords([
+  { name: '[특가] 통영 산지직송 생굴무침 330g', reviewCount: 500 },
+  { name: '통영 최상급 생굴무침 500g, 2개', reviewCount: 300 },
+  { name: '더좋은 통영 산지직송 굴무침', reviewCount: 2000 },
+  { name: '더좋은 어리굴젓 1kg', reviewCount: 600 }
+], '생굴무침');
+assert.strictEqual(kw[0].word, '통영');
+assert.ok(!kw.some((k) => /생굴무침|330g|2개|특가/.test(k.word) && k.word !== '특가') , '검색어·용량·수량 제외');
+assert.strictEqual(kw.find((k) => k.word === '더좋은').caution, '업체명 확인');
+assert.ok(!kw.find((k) => k.word === '최상급'), '한 상품에만 나온 단어 제외');
+console.log('✔ 인기 키워드 추출');
+
 // 4) 분석
 const items = C.scrapeSearch(dom(oldLayout, 'https://www.coupang.com/np/search?q=x')).items;
 const a = A.analyzeKeyword(items, 30);

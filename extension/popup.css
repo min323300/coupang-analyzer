@@ -59,3 +59,11 @@ td.num { text-align: right; white-space: nowrap; }
 button small { color: #888; font-size: 11px; }
 .copy-one { border: none; background: transparent; padding: 0 4px; cursor: pointer; font-size: 13px; }
 .copy-one:hover { background: #eef2fb; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.chip { background: #fff; border: 1px solid #d5dcea; border-radius: 14px; padding: 3px 9px; font-size: 12px; }
+.chip b { color: #346aff; }
+.chip small { color: #888; margin-left: 3px; }
+.chip.warn { border-color: #f5c38b; background: #fff8ef; }
+.chip.warn em { color: #c2410c; font-style: normal; font-size: 10px; margin-left: 3px; }
+button.mini { padding: 2px 8px; font-size: 11px; margin-left: 6px; vertical-align: middle; }
+small.sub { color: #888; font-size: 11px; }
