@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>쿠팡 상품 분석기</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>쿠팡 상품 분석기</h1>
+    <nav>
+      <button class="tab active" data-tab="search">검색 분석</button>
+      <button class="tab" data-tab="review">리뷰 분석</button>
+      <button class="tab" data-tab="settings">설정</button>
+    </nav>
+  </header>
+
+  <div id="status" class="status"></div>
+
+  <!-- 검색 분석 -->
+  <section id="tab-search" class="panel">
+    <p class="hint">쿠팡에서 키워드를 검색한 뒤 <b>[이 페이지 수집]</b>을 누르세요. 2~3페이지까지 넘기며 여러 번 누르면 더 정확합니다.</p>
+    <div class="row">
+      <button id="btnCollect" class="primary">이 페이지 수집</button>
+      <button id="btnSend">구글시트로 보내기</button>
+      <button id="btnCsv">CSV 저장</button>
+      <button id="btnClear" class="ghost">비우기</button>
+    </div>
+    <div class="row">
+      <label>키워드
+        <select id="keywordSelect"></select>
+      </label>
+    </div>
+
+    <div id="summary" class="cards"></div>
+    <div id="advice" class="advice"></div>
+    <h3>가격대별 판매 비중 <small>(리뷰 수 기준)</small></h3>
+    <div id="bands"></div>
+    <h3>상품 목록 <small>(제목을 누르면 정렬)</small></h3>
+    <div class="table-wrap">
+      <table id="table">
+        <thead>
+          <tr>
+            <th data-key="rank">순위</th>
+            <th data-key="name">상품명</th>
+            <th data-key="price">가격</th>
+            <th data-key="reviewCount">리뷰</th>
+            <th data-key="rating">별점</th>
+            <th data-key="delivery">배송</th>
+            <th data-key="estRevenue">추정 누적매출</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">※ 쿠팡은 실제 판매량을 공개하지 않습니다. 판매량·매출은 "리뷰 수 × 배수"로 계산한 추정치입니다. 정확한 추세는 구글시트의 <b>판매추적</b> 탭(매일 같은 키워드 수집 시 리뷰 증가량으로 계산)을 보세요.</p>
+  </section>
+
+  <!-- 리뷰 분석 -->
+  <section id="tab-review" class="panel hidden">
+    <p class="hint">쿠팡 <b>상품 상세 페이지</b>에서 리뷰 영역을 연 뒤 <b>[리뷰 수집]</b>을 누르세요. 리뷰 페이지를 넘기며 여러 번 누르면 계속 쌓입니다. (별점 낮은 순으로 정렬해서도 한 번 수집해 보세요)</p>
+    <div class="row">
+      <button id="btnReviewCollect" class="primary">리뷰 수집</button>
+      <button id="btnAnalyze">AI로 분석</button>
+      <button id="btnReviewClear" class="ghost">비우기</button>
+    </div>
+    <div id="reviewInfo" class="cards"></div>
+    <div id="aiResult" class="ai"></div>
+  </section>
+
+  <!-- 설정 -->
+  <section id="tab-settings" class="panel hidden">
+    <label class="block">구글 앱스스크립트 웹앱 주소
+      <input id="scriptUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+    </label>
+    <label class="block">리뷰 1개당 구매 수 (추정 배수)
+      <input id="multiplier" type="number" min="1" max="500" value="30">
+      <small>보통 20~100 사이. 생필품·저가품은 높게, 고가품은 낮게 잡습니다.</small>
+    </label>
+    <button id="btnSave" class="primary">저장</button>
+    <button id="btnTest">연결 테스트</button>
+  </section>
+
+  <script src="analysis.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

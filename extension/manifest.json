@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "쿠팡 상품 분석기",
+  "version": "1.0.0",
+  "description": "쿠팡 검색 결과와 상품 리뷰를 수집해 가격·리뷰·경쟁도를 분석하고 구글시트에 저장합니다.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "쿠팡 상품 분석기",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.coupang.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.coupang.com/np/search*",
+        "https://www.coupang.com/vp/products/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
