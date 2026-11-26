@@ -171,6 +171,28 @@ assert.strictEqual(nv.items[0].name, '통영 생굴무침 산지직송 300g 당�
 assert.deepStrictEqual(nv.items.map((i) => i.ad), [false, true, false]);
 console.log('✔ 네이버쇼핑 수집 (샘플 구조)');
 
+// 3-2b) 네이버 통합검색 (플러스스토어 영역) — 사용자가 붙여준 실제 화면 글자 순서 기반
+const naverIntegrated = `
+<ul>
+ <li><div><a href="https://smartstore.naver.com/wcfood172/products/5555555"><img alt="국내산 통영 제철 굴 생굴 무침 택배 300g"></a></div>
+  <div><a href="https://smartstore.naver.com/wcfood172/products/5555555">국내산 통영 제철 굴 생굴 무침 택배 300g</a></div>
+  <div><span>할인 전 판매가</span><del>11,900<span>원</span></del><span>16%할인</span><strong>9,900<span>원</span></strong></div>
+  <div>배송비3,500원</div><div><span>4.54</span><span>(54)</span></div><div>통영애서</div><span>광고</span></li>
+ <li><div><a href="https://smartstore.naver.com/kangifood/products/6666666">통영 생굴무침 1kg 제철 굴무침 강이네식탁</a></div>
+  <div><span>할인 전 판매가</span><span>37,000원</span><span>13%할인</span><span>32,000원</span></div>
+  <div>배송비3,500원</div><div><span>4.9</span><span>(8,527)</span></div><div>구매 1,877찜 720</div><div>N배송</div></li>
+</ul>`;
+const ni = C.scrapeNaver(dom(naverIntegrated, 'https://search.naver.com/search.naver?query=%EC%83%9D%EA%B5%B4%EB%AC%B4%EC%B9%A8'));
+assert.strictEqual(ni.keyword, '생굴무침');
+assert.deepStrictEqual(ni.items.map((i) => i.price), [9900, 32000], '할인 전 판매가·배송비 제외');
+assert.deepStrictEqual(ni.items.map((i) => i.rating), [4.54, 4.9]);
+assert.deepStrictEqual(ni.items.map((i) => i.reviewCount), [54, 8527]);
+assert.strictEqual(ni.items[1].purchaseCount, 1877);
+assert.deepStrictEqual(ni.items.map((i) => i.ad), [true, false]);
+assert.strictEqual(ni.items[1].delivery, 'N배송');
+assert.strictEqual(ni.items[1].mall, 'kangifood', '판매처 칸이 없으면 스토어 주소에서');
+console.log('✔ 네이버 통합검색(플러스스토어) 수집');
+
 // 3-3) 인기 키워드
 const kw = A.extractKeywords([
   { name: '[특가] 통영 산지직송 생굴무침 330g', reviewCount: 500 },

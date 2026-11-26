@@ -279,6 +279,7 @@
 
   function naverPrice(card) {
     const t = (card.textContent || '')
+      .replace(/할인\s*전\s*판매가\s*[\d,]+\s*원/g, ' ')
       .replace(/\([^)]*\)/g, ' ')
       .replace(/배송비\s*[\d,]+\s*원/g, ' ')
       .replace(/[\d,]+\s*원\s*(적립|할인|쿠폰|이상)/g, ' ')
@@ -286,7 +287,8 @@
     // 취소선(정가) 제거 후 첫 번째 금액
     const clone = card.cloneNode(true);
     clone.querySelectorAll('del, s, strike').forEach((e) => e.remove());
-    const t2 = (clone.textContent || '').replace(/\([^)]*\)/g, ' ').replace(/배송비\s*[\d,]+\s*원/g, ' ')
+    const t2 = (clone.innerText || clone.textContent || '').replace(/\([^)]*\)/g, ' ').replace(/배송비\s*[\d,]+\s*원/g, ' ')
+      .replace(/할인\s*전\s*판매가\s*[\d,]+\s*원/g, ' ').replace(/정가\s*[\d,]+\s*원/g, ' ')
       .replace(/[\d,]+\s*원\s*(적립|할인|쿠폰|이상)/g, ' ').replace(/최대\s*[\d,]+\s*원/g, ' ');
     const m = t2.match(/([\d]{1,3}(?:,\d{3})+|\d{3,})\s*원/) || t.match(/([\d]{1,3}(?:,\d{3})+|\d{3,})\s*원/);
     return m ? toNumber(m[1]) : null;
@@ -326,14 +328,23 @@
       const img = card.querySelector('img[alt]');
       const name = (linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
 
-      const rv = text.match(/리뷰\s*\(?\s*([\d,.]+\s*만?)/);
-      const buy = text.match(/구매\s*([\d,.]+\s*만?)/);
-      const star = text.match(/(?:별점|평점|★)\s*([0-5](?:\.\d+)?)/);
+      const raw = card.innerText || card.textContent || '';
+      let rv = raw.match(/리뷰\s*\(?\s*([\d,.]+\s*만?)/);
+      const buy = raw.match(/구매\s*([\d,.]+\s*만?)/);
+      let star = raw.match(/(?:별점|평점|★)\s*([0-5](?:\.\d+)?)/);
+      // 통합검색·플러스스토어 형식: "4.78 (6,701)" 처럼 별점 바로 뒤에 리뷰 수
+      const pair = raw.match(/(?:^|[^\d.,])([0-5]\.\d{1,2})\s*[\n\s]\s*\(?\s*([\d,]+(?:\.\d+)?\s*만?)\s*\)?/) ||
+        raw.match(/(?:^|[^\d.,])([0-5]\.\d{1,2})\s*\(\s*([\d,]+(?:\.\d+)?\s*만?)\s*\)/);
+      if (pair) {
+        if (!star) star = [null, pair[1]];
+        if (!rv) rv = [null, pair[2]];
+      }
       const mallEl = card.querySelector('[class*="mall" i] a, [class*="mall_title" i], [class*="mallName" i], [class*="store" i] a');
       const ad = /adcr\.naver\.com|cr\.shopping\.naver\.com\/adcr|ad\.search\.naver/.test(href) ||
         Array.from(card.querySelectorAll('span, em, i, button')).some((e) => e.children.length === 0 && cleanText(e.textContent) === '광고');
       let delivery = '일반';
-      if (/도착보장/.test(text)) delivery = '도착보장';
+      if (/N배송/.test(text)) delivery = 'N배송';
+      else if (/도착보장/.test(text)) delivery = '도착보장';
       else if (/오늘출발/.test(text)) delivery = '오늘출발';
       else if (/무료배송/.test(text)) delivery = '무료배송';
 
@@ -345,7 +356,8 @@
         reviewCount: rv ? koNumber(rv[1]) : 0,
         purchaseCount: buy ? koNumber(buy[1]) : null,
         rating: star ? Number(star[1]) : null,
-        mall: mallEl ? cleanText(mallEl.textContent).slice(0, 40) : '',
+        mall: mallEl ? cleanText(mallEl.textContent).slice(0, 40)
+          : ((href.match(/(?:smartstore|brand)\.naver\.com\/([^/?#]+)/) || [])[1] || ''),
         delivery,
         ad,
         url: absoluteUrl(href, pageUrl),
@@ -359,7 +371,7 @@
 
   function scrapeCurrent() {
     const url = location.href;
-    if (/shopping\.naver\.com/.test(url)) return scrapeNaver(document, url);
+    if (/shopping\.naver\.com|search\.naver\.com/.test(url)) return scrapeNaver(document, url);
     if (/\/np\/search/.test(url)) return scrapeSearch(document, url);
     if (/\/vp\/products\//.test(url)) return scrapeProduct(document, url);
     return { type: 'unknown', url };
