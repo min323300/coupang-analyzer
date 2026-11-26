@@ -428,8 +428,7 @@
     doc = doc || document;
     const priceRe = /[\d,]{3,}\s*원/;
     const hostCount = {};
-    const cards = [];
-    const seen = new Set();
+    const byHost = {};
     Array.from(doc.querySelectorAll('a[href]')).forEach((a) => {
       let el = a;
       for (let i = 0; i < 7 && el.parentElement; i++) {
@@ -438,24 +437,29 @@
         if (priceRe.test(t) && t.length < 600) {
           const h = (a.getAttribute('href') || '').replace(/^https?:\/\//, '').split(/[?#]/)[0].split('/').slice(0, 2).join('/');
           hostCount[h] = (hostCount[h] || 0) + 1;
-          if (!seen.has(el) && cards.length < 6) { seen.add(el); cards.push(el); }
+          (byHost[h] = byHost[h] || []);
+          if (byHost[h].length < 2 && byHost[h].indexOf(el) < 0) byHost[h].push(el);
           break;
         }
       }
     });
+    // 링크 종류마다 카드 1~2개씩 (광고만 잔뜩 복사되지 않게, 드문 종류부터)
+    const hosts = Object.keys(byHost).sort((x, y) => hostCount[x] - hostCount[y]);
+    const cards = [];
+    hosts.forEach((h) => byHost[h].slice(0, hosts.length > 4 ? 1 : 2).forEach((el) => { if (cards.indexOf(el) < 0 && cards.length < 8) cards.push(el); }));
     const clean = (el) => {
       const c = el.cloneNode(true);
       c.querySelectorAll('script,style,svg,noscript').forEach((x) => x.remove());
       c.querySelectorAll('*').forEach((x) => {
         Array.from(x.attributes).forEach((at) => {
           if (at.name === 'href') x.setAttribute('href', at.value.split('?')[0].slice(0, 120));
-          else if (!/^(class|aria-label|title|alt|data-[a-z-]*)$/.test(at.name)) x.removeAttribute(at.name);
+          else if (!/^(class|aria-label|title|alt|data-nlog-area|data-nlog-params)$/.test(at.name)) x.removeAttribute(at.name);
           else if (at.value.length > 120) x.setAttribute(at.name, at.value.slice(0, 120));
         });
       });
       return c.outerHTML.replace(/\s{2,}/g, ' ');
     };
-    const body = cards.map((c, i) => `--- 카드 ${i + 1} ---\n` + clean(c)).join('\n').slice(0, 14000);
+    const body = cards.map((c, i) => `--- 카드 ${i + 1} ---\n` + clean(c).slice(0, 2500)).join('\n').slice(0, 16000);
     return `[화면 구조] ${((doc.location && doc.location.href) || "").split('?')[0]}\n링크 종류: ${JSON.stringify(hostCount)}\n${body}`;
   }
 
