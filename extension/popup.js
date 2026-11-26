@@ -121,13 +121,14 @@
     const key = state.sortKey;
     const dir = state.sortDir;
     const rows = r.items.slice().sort((a, b) => {
-      const x = a[key], y = b[key];
+      let x = a[key], y = b[key];
+      if (key === 'rank') { x = x == null ? 9999 : x; y = y == null ? 9999 : y; }
       if (typeof x === 'string' || typeof y === 'string') return String(x || '').localeCompare(String(y || '')) * dir;
       return ((x || 0) - (y || 0)) * dir;
     });
     document.querySelector('#table tbody').innerHTML = rows.map((i) => `
       <tr>
-        <td class="num">${i.rank || '-'}</td>
+        <td class="num">${i.rank || (i.ad ? '광고' : '-')}</td>
         <td class="name">${i.ad ? '<span class="tag ad">광고</span>' : ''}<a href="${esc(i.url)}" target="_blank">${esc(i.name)}</a></td>
         <td class="num">${num(i.price)}</td>
         <td class="num">${num(i.reviewCount)}</td>
@@ -173,7 +174,7 @@
     const items = currentItems();
     if (!items.length) return status('먼저 데이터를 수집하세요.', 'err');
     const r = A.analyzeKeyword(items, state.settings.multiplier);
-    const blob = new Blob([A.toCsv(r.items.sort((a, b) => a.rank - b.rank))], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([A.toCsv(r.items.sort((a, b) => (a.rank || 9999) - (b.rank || 9999)))], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `쿠팡_${state.current}_${new Date().toISOString().slice(0, 10)}.csv`;

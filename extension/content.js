@@ -37,11 +37,17 @@
     );
     if (direct && toNumber(direct.textContent)) return toNumber(direct.textContent);
 
+    // 가격 영역만 대상으로 (적립금·쿠폰 금액이 섞이지 않도록)
+    const scope = card.querySelector('[class*="PriceArea"], [class*="priceArea"], [class*="price-area"], [class*="price-wrap"]') || card;
+
     // 정가(취소선)와 단위가격( "(100g당 1,200원)" )은 빼고 "원" 금액 중 가장 작은 값을 판매가로 봄
-    const clone = card.cloneNode(true);
-    clone.querySelectorAll('del, s, strike, [class*="base-price"], [class*="BasePrice"], [class*="unit-price"], [class*="UnitPrice"]')
+    const clone = scope.cloneNode(true);
+    clone.querySelectorAll('del, s, strike, img, [class*="base-price"], [class*="BasePrice"], [class*="unit-price"], [class*="UnitPrice"], [class*="origin-price"]')
       .forEach((el) => el.remove());
-    const text = (clone.textContent || '').replace(/\([^)]*\)/g, ' ');
+    const text = (clone.textContent || '')
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/최대\s*[\d,]+\s*원\s*적립/g, ' ')
+      .replace(/[\d,]+\s*원\s*(적립|할인|쿠폰|캐시)/g, ' ');
     const amounts = [];
     const re = /([\d]{1,3}(?:,\d{3})+|\d{3,})\s*원/g;
     let m;
@@ -68,11 +74,18 @@
 
   // 별점 찾기: aria-label, 숫자, 또는 별 그림의 width(%)
   function extractRating(card) {
-    const aria = card.querySelector('[aria-label*="별점"], [aria-label*="rating" i]');
-    if (aria) {
-      const n = toNumber(aria.getAttribute('aria-label'));
-      if (n != null && n <= 5) return n;
+    // 2026년 쿠팡 화면: 별 묶음에 aria-label="4.5" 처럼 숫자만 들어 있음
+    const arias = Array.from(card.querySelectorAll('[aria-label]'));
+    for (const el of arias) {
+      const v = (el.getAttribute('aria-label') || '').trim();
+      if (/^\d(\.\d)?$/.test(v) && Number(v) <= 5) return Number(v);
+      const m = v.match(/(?:별점|rating)[^\d]*(\d(?:\.\d)?)/i);
+      if (m && Number(m[1]) <= 5) return Number(m[1]);
     }
+    // 별 그림 개수로 계산 (꽉 찬 별 1, 반쪽 별 0.5)
+    const full = card.querySelectorAll('[class*="fullRating"], [class*="full-star"]').length;
+    const half = card.querySelectorAll('[class*="halfRating"], [class*="half-star"]').length;
+    if (full + half > 0) return full + half * 0.5;
     const ratingEl = card.querySelector('em.rating, .rating, [class*="rating"]:not([class*="count"]):not([class*="Count"])');
     if (ratingEl) {
       const n = toNumber(ratingEl.textContent);
@@ -101,16 +114,24 @@
     const imgs = Array.from(card.querySelectorAll('img'));
     const srcs = imgs.map((i) => (i.getAttribute('src') || '') + ' ' + (i.getAttribute('alt') || '')).join(' ').toLowerCase();
     const text = card.textContent || '';
-    if (/rocket[_-]?fresh|로켓프레시/.test(srcs + text)) return '로켓프레시';
+    if (/rocket[_-]?fresh|logo_fresh|로켓프레시/.test(srcs + text)) return '로켓프레시';
     if (/rocket[_-]?merchant|판매자로켓|로켓그로스/.test(srcs + text)) return '판매자로켓';
     if (/rocket[_-]?jikgu|로켓직구/.test(srcs + text)) return '로켓직구';
     if (/rocket|로켓배송/.test(srcs + text)) return '로켓배송';
     return '일반';
   }
 
-  function isAd(card) {
-    if (card.querySelector('.ad-badge, [class*="ad-badge"], [class*="AdMark"], [class*="adMark"]')) return true;
-    return /(^|\s)광고(\s|$)/.test(card.textContent || '');
+  function isAd(card, link) {
+    const href = (link && link.getAttribute('href')) || '';
+    if (/sourceType=srp_product_ads|_ads(&|$)/.test(href)) return true;
+    if (card.querySelector('[aria-label="Ad information"], .ad-badge, [class*="ad-badge"], [class*="AdMark"], [class*="adMark"]')) return true;
+    // 글자가 정확히 "광고"인 요소
+    return Array.from(card.querySelectorAll('span, div, em')).some((el) => el.children.length === 0 && cleanText(el.textContent) === '광고');
+  }
+
+  function rankFromHref(href) {
+    const m = String(href || '').match(/[?&]rank=(\d+)/);
+    return m ? Number(m[1]) : null;
   }
 
   // 검색 결과 페이지 읽기
@@ -143,13 +164,20 @@
         reviewCount: extractReviewCount(card),
         rating: extractRating(card),
         delivery: extractDelivery(card),
-        ad: isAd(card),
+        ad: isAd(card, a),
+        hrefRank: rankFromHref(a.getAttribute('href')),
         url: absoluteUrl(a.getAttribute('href'), pageUrl).split('?')[0],
         image: (card.querySelector('img') && (card.querySelector('img').getAttribute('src') || card.querySelector('img').getAttribute('data-src'))) || ''
       });
     });
-    const offset = (page - 1) * 36;
-    items.forEach((it, i) => { it.rank = offset + i + 1; });
+    // 순위: 쿠팡 링크에 들어 있는 rank 값을 우선 사용, 없으면 화면 순서(광고 제외)로 계산
+    const perPage = 60;
+    let pos = 0;
+    items.forEach((it) => {
+      if (it.ad) { it.rank = null; }
+      else { pos += 1; it.rank = it.hrefRank || ((page - 1) * perPage + pos); }
+      delete it.hrefRank;
+    });
     return { type: 'search', keyword, page, url: pageUrl, items };
   }
 
@@ -158,35 +186,61 @@
     doc = doc || document;
     pageUrl = pageUrl || (doc.location && doc.location.href) || '';
     const id = productIdFromUrl(pageUrl);
-    const titleEl = doc.querySelector('.prod-buy-header__title, h1[class*="title"], h1, h2.prod-buy-header__title');
+    const titleEl = doc.querySelector('h1.product-title, .prod-buy-header__title, h1[class*="title"], h1');
     const og = doc.querySelector('meta[property="og:title"]');
     const name = cleanText((titleEl && titleEl.textContent) || (og && og.getAttribute('content')) || doc.title);
 
-    const priceEl = doc.querySelector('.total-price strong, [class*="final-price"], [class*="FinalPrice"], .prod-sale-price .total-price, [class*="price-amount"]');
-    const price = priceEl ? toNumber(priceEl.textContent) : null;
+    // 판매가: 가격 영역에서 정가(취소선)·단위가격을 빼고 첫 번째 금액
+    let price = null;
+    const priceBox = doc.querySelector('.price-container, .prod-price-container, .prod-sale-price');
+    if (priceBox) {
+      const clone = priceBox.cloneNode(true);
+      clone.querySelectorAll('del, s, [class*="origin-price"], [class*="base-price"], [class*="unit-price"]').forEach((e) => e.remove());
+      const m = (clone.textContent || '').replace(/\([^)]*\)/g, ' ').match(/([\d]{1,3}(?:,\d{3})+|\d{3,})\s*원/);
+      if (m) price = toNumber(m[1]);
+    }
+    if (!price) {
+      const priceEl = doc.querySelector('.total-price strong, [class*="final-price"], [class*="price-amount"]');
+      price = priceEl ? toNumber(priceEl.textContent) : null;
+    }
 
-    const countEl = doc.querySelector('.count, .sdp-review__average__total-star__info-count, [class*="review-count"], [class*="ReviewCount"]');
+    const countEl = doc.querySelector('.rating-count-txt, .sdp-review__average__total-star__info-count, .count, [class*="review-count"], [class*="ReviewCount"]');
     const reviewCount = countEl ? toNumber(countEl.textContent) : null;
 
-    const reviewNodes = doc.querySelectorAll(
-      '.sdp-review__article__list__review__content, [class*="review__content"], [class*="ReviewContent"], [class*="review-content"], article [class*="review"] [class*="content"]'
-    );
     const reviews = [];
     const seen = new Set();
-    reviewNodes.forEach((n) => {
-      const t = cleanText(n.textContent);
+    const push = (text, star, title) => {
+      const t = cleanText(text);
       if (t.length >= 5 && !seen.has(t)) {
         seen.add(t);
-        // 해당 리뷰의 별점 (있으면)
-        const art = n.closest('article') || n.parentElement;
-        let star = null;
-        if (art) {
-          const s = art.querySelector('[data-rating], [class*="star-orange"], [class*="rating"]');
-          if (s) star = toNumber(s.getAttribute('data-rating')) || null;
-        }
-        reviews.push({ text: t.slice(0, 1000), star });
+        reviews.push({ text: (title ? '[' + cleanText(title) + '] ' : '') + t.slice(0, 1000), star });
       }
+    };
+    const starOf = (art) => {
+      if (!art) return null;
+      const full = art.querySelectorAll('[class*="full-star"], [class*="fullRating"]').length;
+      const half = art.querySelectorAll('[class*="half-star"], [class*="halfRating"]').length;
+      if (full + half) return full + half * 0.5;
+      const s = art.querySelector('[data-rating]');
+      return s ? toNumber(s.getAttribute('data-rating')) : null;
+    };
+
+    // 2026년 화면: 리뷰 영역(.sdp-review / .product-review) 안의 article, 본문은 span[translate="no"]
+    const reviewArea = doc.querySelector('.sdp-review, .product-review, #sdpReview') || doc;
+    reviewArea.querySelectorAll('article').forEach((art) => {
+      const body = art.querySelector('span[translate="no"], .sdp-review__article__list__review__content, [class*="review__content"]');
+      if (!body) return;
+      const titleEl2 = art.querySelector('.sdp-review__article__list__headline, [class*="headline"]') ||
+        (body.closest('div') && body.closest('div').previousElementSibling);
+      const title = titleEl2 && titleEl2.className && /font-bold|headline/.test(titleEl2.className) ? titleEl2.textContent : '';
+      push(body.innerText || body.textContent, starOf(art), title);
     });
+    // 예전 화면 대비
+    if (!reviews.length) {
+      doc.querySelectorAll('.sdp-review__article__list__review__content, [class*="ReviewContent"], [class*="review-content"]').forEach((n) => {
+        push(n.textContent, starOf(n.closest('article')), '');
+      });
+    }
     return { type: 'product', id, name, price, reviewCount, url: pageUrl.split('?')[0], reviews };
   }
 

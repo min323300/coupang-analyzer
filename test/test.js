@@ -46,6 +46,33 @@ const newLayout = `
   </li>
 </ul>`;
 
+// 2026년 11월 실제 쿠팡 검색 화면 구조 (적립금 배지, aria-label 별점, 광고 링크)
+const realLayout = `
+<ul>
+  <li class="ProductUnit_productUnit__Qd6sv"><a href="/vp/products/9784754448?itemId=1&sourceType=srp_product_ads&q=귤&searchRank=0">
+    <div class="ProductUnit_productNameV2__cV9cw">고당도 산지직송 제주감귤, 9kg</div>
+    <div class="PriceArea_priceArea__NntJz"><div><span>할인</span><del>33,900원</del></div>
+      <div><div>35%</div><div><span>21,900원</span></div><span>(100g당 438원)</span></div></div>
+    <div class="ProductRating_productRating__jjf7W"><div aria-label="4.5"><div class="ProductRating_fullRating__1t_jb"></div></div><span>(3,739)</span></div>
+    <div><span><img alt="최대 1,095원 적립" src="https://image.coupangcdn.com/image/badges/cashback/web/list-cash-icon@2x.png"><span>최대 1,095원 적립</span></span></div>
+  </a></li>
+  <li class="ProductUnit_productUnit__Qd6sv"><a href="/vp/products/9810394293?itemId=2&q=귤&sourceType=search&rank=2&searchRank=2">
+    <div class="ProductUnit_productNameV2__cV9cw">[타임특가] 당일수확 제주 귤 10kg</div>
+    <div class="PriceArea_priceArea__NntJz"><div><span>할인</span><del>26,400원</del></div>
+      <div><div><div>57%</div><svg></svg></div><div><span>11,300원</span></div><span>(100g당 113원)</span></div></div>
+    <div><span>12/1(화) </span><span>도착 예정</span></div>
+    <div class="ProductRating_productRating__jjf7W"><div aria-label="5"></div><span>(48)</span></div>
+    <div><span><img alt="최대 565원 적립" src="x/cashback/list-cash-icon@2x.png"><span>최대 565원 적립</span></span></div>
+    <span class="RankMark_rank1__EWwz0">1</span>
+  </a></li>
+  <li class="ProductUnit_productUnit__Qd6sv"><a href="/vp/products/777?itemId=3&sourceType=search&rank=5">
+    <div class="ProductUnit_productNameV2__cV9cw">귤탐 감귤 2kg</div>
+    <div class="PriceArea_priceArea__NntJz"><div><span>12,990원</span></div></div>
+    <img src="https://image.coupangcdn.com/image/badges/falcon/logo/xhdpi/logo_fresh_medium.png">
+    <div aria-label="3.5"></div><span>(149,166)</span>
+  </a></li>
+</ul>`;
+
 function dom(html, url) {
   return new JSDOM(html, { url }).window.document;
 }
@@ -63,15 +90,47 @@ assert.strictEqual(r.items[2].delivery, '판매자로켓');
 assert.strictEqual(r.items[0].url, 'https://www.coupang.com/vp/products/111');
 console.log('✔ 옛 화면 구조 수집');
 
-// 2) 새 화면 (2페이지 → 순위 37부터)
+// 2) 새 화면 (2페이지 → 순위 61부터)
 r = C.scrapeSearch(dom(newLayout, 'https://www.coupang.com/np/search?q=%EC%B0%A8%EC%A1%B0&page=2'));
 assert.strictEqual(r.items.length, 1);
 assert.strictEqual(r.items[0].price, 16500, '정가·단위가격 제외한 판매가');
 assert.strictEqual(r.items[0].reviewCount, 312);
 assert.strictEqual(r.items[0].rating, 4.5);
 assert.strictEqual(r.items[0].name, '유기농 차조 800g');
-assert.strictEqual(r.items[0].rank, 37);
+assert.strictEqual(r.items[0].rank, 61);
 console.log('✔ 새 화면 구조 수집');
+
+// 2-1) 2026년 11월 실제 화면 구조
+r = C.scrapeSearch(dom(realLayout, 'https://www.coupang.com/np/search?q=%EA%B7%A4'));
+assert.deepStrictEqual(r.items.map((i) => i.price), [21900, 11300, 12990], '적립금(최대 OOO원 적립)을 가격으로 읽으면 안 됨');
+assert.deepStrictEqual(r.items.map((i) => i.reviewCount), [3739, 48, 149166]);
+assert.deepStrictEqual(r.items.map((i) => i.rating), [4.5, 5, 3.5]);
+assert.deepStrictEqual(r.items.map((i) => i.ad), [true, false, false]);
+assert.deepStrictEqual(r.items.map((i) => i.rank), [null, 2, 5], '광고는 순위 없음, 나머지는 링크의 rank 값');
+assert.strictEqual(r.items[2].delivery, '로켓프레시');
+assert.strictEqual(r.items[1].name, '[타임특가] 당일수확 제주 귤 10kg');
+console.log('✔ 2026년 실제 화면 구조 수집 (적립금·광고·별점)');
+
+// 3-1) 2026년 실제 상품 상세 화면
+const realProduct = `
+<h1 class="product-title"><span>코멧 오리지널 아기물티슈 캡형</span></h1>
+<div class="price-container"><div>39%</div><div>10,890원</div><div>(1매당 11원)</div><del>18,000원</del></div>
+<span class="rating-count-txt">493,278 개 상품평</span>
+<div class="sdp-review">
+  <article><div><i class="twc-bg-full-star"></i><i class="twc-bg-full-star"></i><i class="twc-bg-full-star"></i><i class="twc-bg-full-star"></i><i class="twc-bg-half-star"></i></div>
+    <div class="twc-mb-[8px] twc-font-bold">마구 부담없이써요</div>
+    <div class="twc-break-all"><span translate="no">몇 년째 꾸준히 사용하고 있어요<br>가격 대비 구성이 좋아요</span></div></article>
+  <article><div><i class="twc-bg-full-star"></i><i class="twc-bg-full-star"></i></div>
+    <div class="twc-break-all"><span translate="no">뚜껑이 잘 안 닫혀서 말라요</span></div></article>
+</div>`;
+const rp = C.scrapeProduct(dom(realProduct, 'https://www.coupang.com/vp/products/188227098?itemId=5'));
+assert.strictEqual(rp.price, 10890);
+assert.strictEqual(rp.reviewCount, 493278);
+assert.strictEqual(rp.reviews.length, 2);
+assert.strictEqual(rp.reviews[0].star, 4.5);
+assert.ok(rp.reviews[0].text.startsWith('[마구 부담없이써요]'));
+assert.strictEqual(rp.reviews[1].star, 2);
+console.log('✔ 2026년 실제 상품 상세·리뷰 수집');
 
 // 3) 상품 상세 + 리뷰
 const product = `
