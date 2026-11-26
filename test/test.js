@@ -2,6 +2,7 @@
 // 실행: npm test
 const { JSDOM } = require('jsdom');
 const assert = require('assert');
+const fs = require('fs');
 const C = require('../extension/content.js');
 const A = require('../extension/analysis.js');
 
@@ -215,6 +216,21 @@ assert.deepStrictEqual(st.items.map((i) => i.price), [9900, 15900, 27800]);
 assert.deepStrictEqual(st.items.map((i) => i.mall), ['그대의밥상', '해남수산', '통영바다']);
 assert.deepStrictEqual(st.items.map((i) => i.reviewCount), [100, 200, 300]);
 console.log('✔ 네이버쇼핑 탭 (카드 안 링크가 여러 개)');
+
+// 3-2f) 실제 네이버 통합검색 화면 구조 (사용자가 복사해 준 것, 2026-11-26)
+const realNaver = fs.readFileSync(__dirname + '/naver-integrated-real.html', 'utf8');
+const rn = C.scrapeNaver(dom('<body>' + realNaver + '</body>', 'https://search.naver.com/search.naver?query=%EC%83%9D%EA%B5%B4%EB%AC%B4%EC%B9%A8'));
+const chef = rn.items.find((i) => /250g/.test(i.name) && i.mall === '셰프애찬');
+assert.ok(chef, '셰프애찬 카드 수집');
+assert.strictEqual(chef.price, 9800, '할인 전 판매가 15,800 제외');
+assert.strictEqual(chef.rating, 4.67);
+assert.strictEqual(chef.reviewCount, 9822);
+assert.ok([3000, 3026].includes(chef.purchaseCount), '구매 수');
+assert.strictEqual(C.koNumber('3천+'), 3000);
+assert.strictEqual(chef.ad, true);
+assert.strictEqual(chef.delivery, '오늘출발');
+assert.ok(rn.items.some((i) => i.mall === '강이네 식탁'), '두 번째 카드');
+console.log('✔ 실제 네이버 통합검색 구조 (' + rn.items.length + '개: ' + rn.items.map((i) => i.mall + ' ' + i.price).join(', ') + ')');
 
 // 3-2d) 화면 구조 복사
 const dbg = C.debugDump(dom(naverMain, 'https://search.naver.com/search.naver?query=x'));

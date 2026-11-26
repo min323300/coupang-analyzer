@@ -245,7 +245,13 @@
   }
 
   // ---------- 네이버쇼핑 검색 결과 ----------
-  const NAVER_PRODUCT_RE = /(smartstore\.naver\.com\/[^/?#]+\/products\/\d+|brand\.naver\.com\/[^/?#]+\/products\/\d+|shopping\.naver\.com\/(catalog|window-products|ns\/products|outlink|bridge|product)|cr\.shopping\.naver\.com|adcr\.naver\.com|\/catalog\/\d+|nv_mid=\d+|nvMid=\d+|nvmid=\d+)/i;
+  const NAVER_PRODUCT_RE = /(smartstore\.naver\.com\/[^/?#]+\/products\/\d+|smartstore\.naver\.com\/inflow|brand\.naver\.com\/[^/?#]+\/products\/\d+|brand\.naver\.com\/inflow|shopping\.naver\.com\/(catalog|window-products|ns\/products|outlink|bridge|product)|cr\d*\.shopping\.naver\.com|adcr\.naver\.com|ader\.naver\.com\/v\d|\/catalog\/\d+|nv_mid=\d+|nvMid=\d+|nvmid=\d+)/i;
+
+  function naverKeyOf(a) {
+    const p = a.getAttribute('data-nlog-params') || '';
+    const m = p.match(/nv_mid[^\d]{0,12}(\d{5,})/);
+    return m ? m[1] : naverKey(a.getAttribute('href'));
+  }
 
   function naverKey(href) {
     const s = String(href || '');
@@ -256,9 +262,9 @@
   function koNumber(str) {
     // "1.2만" → 12000, "3,456" → 3456
     if (!str) return null;
-    const m = String(str).replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*(만)?/);
+    const m = String(str).replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*(만|천)?/);
     if (!m) return null;
-    return Math.round(Number(m[1]) * (m[2] ? 10000 : 1));
+    return Math.round(Number(m[1]) * (m[2] === '만' ? 10000 : m[2] === '천' ? 1000 : 1));
   }
 
   // 상품 제목 링크(글자가 긴 링크)를 기준으로 위로 올라가며, 다른 상품 제목이 섞이기 직전까지의 상자 중
@@ -267,13 +273,18 @@
     return cleanText(x.getAttribute('title') || x.textContent);
   }
   function isTitleLink(x) {
+    const area = x.getAttribute('data-nlog-area') || '';
+    // 네이버가 붙여 둔 표시: ...tit(제목) / ...img(사진) / ...mall(판매처)
+    if (/\.(img|mall|info|desc|description|url|favicon|sublink\d*|checkout)$/.test(area)) return false;
     const t = linkTitle(x);
+    if (/\.tit$/.test(area) && t.length >= 4) return true;
     return t.length >= 8 && !/^[\d,]+\s*원$/.test(t) && NAVER_PRODUCT_RE.test(x.getAttribute('href') || '');
   }
   function naverCard(a) {
     const title = linkTitle(a);
     let el = a;
-    let best = null;
+    // 링크 자체가 상품 상자인 경우(광고 영역의 상품 카드 등)
+    let best = /[\d,]{3,}\s*원/.test(a.textContent || '') ? a : null;
     for (let i = 0; i < 9 && el && el.parentElement; i++) {
       el = el.parentElement;
       if (el.tagName === 'BODY') break;
@@ -324,9 +335,10 @@
     const seen = new Set();
     const items = [];
     const seenCards = new Set();
+    const seenNames = new Map();
     Array.from(doc.querySelectorAll('a[href]')).filter(isTitleLink).forEach((a) => {
       const href = a.getAttribute('href') || '';
-      const key = naverKey(href);
+      const key = naverKeyOf(a);
       if (seen.has(key)) return;
       const card = naverCard(a);
       if (!card || seenCards.has(card)) return;
@@ -343,11 +355,16 @@
         .filter((s) => s.length >= 4 && !/^[\d,]+\s*원$/.test(s));
       linkTexts.sort((p, q) => q.length - p.length);
       const img = card.querySelector('img[alt]');
-      const name = (linkTitle(a) || linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
+      // 링크 안에 가격까지 들어 있으면(광고 상자) 상품명 칸만, 없으면 가격 앞 글자까지
+      const prodEl = a.querySelector('[class*="product" i], [class*="tit" i], [class*="name" i]');
+      let name = prodEl ? cleanText(prodEl.textContent) : linkTitle(a);
+      if (/[\d,]{3,}\s*원/.test(name)) name = name.split(/[\d,]{3,}\s*원/)[0].trim();
+      name = (name || linkTexts[0] || (img && cleanText(img.getAttribute('alt'))) || '').slice(0, 150);
+      const dupKey = name.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, '') + '|' + price;
 
       const raw = card.innerText || card.textContent || '';
-      let rv = raw.match(/리뷰\s*\(?\s*([\d,.]+\s*만?)/);
-      const buy = raw.match(/구매\s*([\d,.]+\s*만?)/);
+      let rv = raw.match(/리뷰\s*\(?\s*([\d,.]+\s*[만천]?)/);
+      const buy = raw.match(/구매\s*([\d,.]+\s*[만천]?)/);
       let star = raw.match(/(?:별점|평점|★)\s*([0-5](?:\.\d+)?)/);
       // 통합검색·플러스스토어 형식: "4.78 (6,701)" 처럼 별점 바로 뒤에 리뷰 수
       const pair = raw.match(/(?:^|[^\d.,])([0-5]\.\d{1,2})\s*[\n\s]\s*\(?\s*([\d,]+(?:\.\d+)?\s*만?)\s*\)?/) ||
@@ -356,8 +373,18 @@
         if (!star) star = [null, pair[1]];
         if (!rv) rv = [null, pair[2]];
       }
-      const mallEl = card.querySelector('[class*="mall" i] a, [class*="mall_title" i], [class*="mallName" i], [class*="store" i] a');
-      const ad = /adcr\.naver\.com|cr\.shopping\.naver\.com\/adcr|ad\.search\.naver/.test(href) ||
+      // 별점과 리뷰 수가 따로 떨어진 글자 조각일 때: "4.67" 다음 조각 "9,822" 또는 "(9,822)"
+      const lv = Array.from(card.querySelectorAll('*')).filter((x) => x.children.length === 0)
+        .map((x) => cleanText(x.textContent)).filter(Boolean);
+      for (let k = 0; k < lv.length - 1; k++) {
+        if (/^[0-5]\.\d{1,2}$/.test(lv[k]) && /^\(?\s*[\d,]+(\.\d+)?\s*만?\+?\s*\)?$/.test(lv[k + 1])) {
+          star = [null, lv[k]];
+          rv = [null, lv[k + 1].replace(/[()]/g, '')];
+          break;
+        }
+      }
+      const mallEl = card.querySelector('a[data-nlog-area$=".mall"], [class*="mall" i] a, [class*="mall_title" i], [class*="mallName" i], [class*="store" i] a');
+      const ad = /adcr\.naver\.com|ader\.naver\.com|cr\d*\.shopping\.naver\.com\/adcr|ad\.search\.naver/.test(href) ||
         Array.from(card.querySelectorAll('span, em, i, button')).some((e) => e.children.length === 0 && cleanText(e.textContent) === '광고');
       let delivery = '일반';
       if (/N배송/.test(text)) delivery = 'N배송';
@@ -365,7 +392,7 @@
       else if (/오늘출발/.test(text)) delivery = '오늘출발';
       else if (/무료배송/.test(text)) delivery = '무료배송';
 
-      items.push({
+      const it = {
         id: key,
         source: 'naver',
         name,
@@ -379,7 +406,17 @@
         ad,
         url: absoluteUrl(href, pageUrl),
         image: (img && (img.getAttribute('src') || img.getAttribute('data-src'))) || ''
-      });
+      };
+      // 같은 상품이 광고 상자와 목록에 두 번 나오면 하나로 합침 (빈 칸은 서로 채움)
+      const prev = seenNames.get(dupKey);
+      if (prev) {
+        ['mall', 'purchaseCount', 'rating', 'reviewCount', 'image'].forEach((f) => { if (!prev[f] && it[f]) prev[f] = it[f]; });
+        if (prev.delivery === '일반' && it.delivery !== '일반') prev.delivery = it.delivery;
+        prev.ad = prev.ad && it.ad;
+        return;
+      }
+      seenNames.set(dupKey, it);
+      items.push(it);
     });
     let pos = 0;
     items.forEach((it) => { if (it.ad) it.rank = null; else { pos += 1; it.rank = (page - 1) * 40 + pos; } });
